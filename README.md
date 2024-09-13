@@ -13,10 +13,15 @@
 
 ## Structure du GIT:
   Dossier Bibliographie: regroupe tout les articles,livres et autres ressources qui ont été lues pour la réalisation de ce projet
+  
   Dossier Données: regroupe toutes les données utilisées lors de ce projet
+  
   Dossier Codes: regroupe tout le code généré pour la réalisation de ce projet
-  Dossier Rendus: regroupe tout les rendus écrits lors des différentes étapes de ce projet.
+  
+  Dossier Rendus: regroupe tout les rendus écrits lors des différentes étapes de ce projet
+  
   Dossier Rapport: contient le rapport du projet
+  
   Dossier Soutenance: contient tout les fichiers nécessaires à la soutenance de ce projet
 
 ## Outils collaboratifs utilisées lors de ce projet:
