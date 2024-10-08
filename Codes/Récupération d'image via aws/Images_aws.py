@@ -2,8 +2,8 @@ import gzip
 import pandas as pd
 import subprocess
 
-
-path_bash = 'C:\\Program Files\\Git\\bin\\bash.exe' #Il sera peut-être nécessaire de changer le chemin de bash suivant votre installation
+# my path = C:\\Program Files\\Git\\bin\\bash.exe
+path_bash = 'C:\Users\niyob\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Git' #Il sera peut-être nécessaire de changer le chemin de bash suivant votre installation
 n_photos = 500 #Nombre de photos à télécharger
 
 
