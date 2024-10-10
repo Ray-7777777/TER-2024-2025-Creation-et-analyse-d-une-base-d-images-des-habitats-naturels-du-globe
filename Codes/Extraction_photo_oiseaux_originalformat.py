@@ -2,7 +2,7 @@ import os
 import requests
 
 # Dossier parent pour toutes les espèces d'oiseaux
-dataset_dir = 'birds_dataset'
+dataset_dir = '..\Données\ birds_dataset'
 os.makedirs(dataset_dir, exist_ok=True)
 
 # Nombre d'espèces et d'images par espèce
