@@ -1,8 +1,9 @@
 import os
 import requests
+import random
 
 # Dossier parent pour toutes les espèces d'oiseaux
-dataset_dir = '..\Données\ birds_dataset'
+dataset_dir = r'..\Données\birds_dataset'
 os.makedirs(dataset_dir, exist_ok=True)
 
 # Nombre d'espèces et d'images par espèce
@@ -94,21 +95,39 @@ def download_images_for_species(taxon_id, species_name):
     # Limiter aux `num_images_per_species`
     photo_urls = photo_urls[:num_images_per_species]
 
-    # Créer un sous-dossier pour l'espèce
-    if photo_urls:
-        species_dir = os.path.join(dataset_dir, species_name)
-        os.makedirs(species_dir, exist_ok=True)
+    # Mélanger les URLs pour randomiser la sélection des 80% et 20%
+    random.shuffle(photo_urls)
 
-        # Télécharger les images
-        for i, url in enumerate(photo_urls):
-            try:
-                # Extraire l'extension du fichier à partir de l'URL (ex: .jpg, .png)
-                file_extension = url.split('.')[-1]
-                response = requests.get(url)
-                with open(f'{species_dir}/{species_name}_{i+1}.{file_extension}', 'wb') as f:
-                    f.write(response.content)
-            except Exception as e:
-                print(f"Erreur lors du téléchargement de l'image {i+1} pour {species_name}: {e}")
+    # Diviser les images en 80% pour train et 20% pour test
+    split_index = int(0.8 * len(photo_urls))
+    train_urls = photo_urls[:split_index]
+    test_urls = photo_urls[split_index:]
+
+    # Créer les sous-dossiers pour l'entraînement et le test
+    species_train_dir = os.path.join(dataset_dir, species_name, 'train')
+    species_test_dir = os.path.join(dataset_dir, species_name, 'test')
+    os.makedirs(species_train_dir, exist_ok=True)
+    os.makedirs(species_test_dir, exist_ok=True)
+
+    # Télécharger les images pour l'ensemble d'entraînement
+    for i, url in enumerate(train_urls):
+        try:
+            file_extension = url.split('.')[-1]
+            response = requests.get(url)
+            with open(f'{species_train_dir}/{species_name}_{i+1}.{file_extension}', 'wb') as f:
+                f.write(response.content)
+        except Exception as e:
+            print(f"Erreur lors du téléchargement de l'image {i+1} pour {species_name}: {e}")
+
+    # Télécharger les images pour l'ensemble de test
+    for i, url in enumerate(test_urls):
+        try:
+            file_extension = url.split('.')[-1]
+            response = requests.get(url)
+            with open(f'{species_test_dir}/{species_name}_{i+1}.{file_extension}', 'wb') as f:
+                f.write(response.content)
+        except Exception as e:
+            print(f"Erreur lors du téléchargement de l'image {i+1} pour {species_name}: {e}")
 
 # Récupérer les premières `num_species` espèces d'oiseaux
 bird_species = get_bird_species()
