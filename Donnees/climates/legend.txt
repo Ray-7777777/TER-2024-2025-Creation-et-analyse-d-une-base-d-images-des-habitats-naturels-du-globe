@@ -1,0 +1,32 @@
+GRIDCODE,CLIMATE,SUB-CLIMATE,SUB-SUB-CLIMATE
+11,Tropical,Rainforest,
+12,Tropical,Monsoon,
+13,Tropical,Savannah,Dry summer
+14,Tropical,Savannah,Dry winter
+21,Arid,Desert,Cold
+22,Arid,Desert,Hot
+26,Arid,Steppe,Cold
+27,Arid,Steppe,Hot
+31,Temperate,Hot summer,Without dry season
+32,Temperate,Warm summer,Without dry season
+33,Temperate,Cold summer,Without dry season
+34,Temperate,Hot summer,Dry summer
+35,Temperate,Warm summer,Dry summer
+36,Temperate,Cold summer,Dry summer
+37,Temperate,Hot summer,Dry winter
+38,Temperate,Warm summer,Dry winter
+39,Temperate,Cold summer,Dry winter
+41,Boreal,Hot summer,Without dry season
+42,Boreal,Warm summer,Without dry season
+43,Boreal,Cold summer,Without dry season
+44,Boreal,Very cold winter,Without dry season
+45,Boreal,Hot summer,Dry summer
+46,Boreal,Warm summer,Dry summer
+47,Boreal,Cold summer,Dry summer
+48,Boreal,Very cold winter,Dry summer
+49,Boreal,Hot summer,Dry winter
+50,Boreal,Warm summer,Dry winter
+51,Boreal,Cold summer,Dry winter
+52,Boreal,Very cold winter,Dry winter
+61,Polar,Frost,
+62,Polar,Tundra,

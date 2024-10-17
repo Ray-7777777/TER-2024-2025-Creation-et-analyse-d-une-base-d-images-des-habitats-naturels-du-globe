@@ -1,14 +1,18 @@
 import os
 import requests
-import subprocess 
+import geopandas as gpd
+from shapely.geometry import Point
 
 # Dossier parent pour toutes les espèces d'oiseaux
-dataset_dir = '..\\Données\\birds_dataset'
+dataset_dir = '..\\..\\Donnees\\birds_dataset'
 os.makedirs(dataset_dir, exist_ok=True)
 
+# Shapefile pour l'occupation des sols
+shapefile = gpd.read_file("../../Donnees/climates/climates.shp")
+
 # Nombre d'espèces et d'images par espèce
-num_species = 5
-num_images_per_species = 10
+num_species = 2
+num_images_per_species = 2
 
 # Fonction pour récupérer les espèces d'oiseaux
 def get_bird_species():
@@ -81,8 +85,18 @@ def download_images_for_species(taxon_id, species_name):
 
     # Extraire et télécharger les photos spécifiques à chaque observation
     photo_urls = []
+    coordinates = []
+
     for obs in observations:
-        if 'photos' in obs:  # Vérifier s'il y a des photos dans l'observation
+        geojson_coords = obs.get('geojson', {}).get('coordinates', None)
+        
+        if geojson_coords:  # Vérifie si des coordonnées sont disponibles
+            longitude, latitude = geojson_coords  # Les coordonnées sont dans l'ordre [longitude, latitude]
+            coordinates.append((latitude, longitude))  # Ajoute les coordonnées à la liste
+        else:
+            print("Aucune coordonnée disponible")
+
+        if 'photos' in obs:  # Vérifie s'il y a des photos dans l'observation
             for photo in obs['photos']:
                 # Utiliser l'URL de la photo existante et ajouter "original" au bon format
                 base_url = photo['url'].rsplit('/', 1)[0]  # Récupère la base de l'URL
@@ -110,6 +124,22 @@ def download_images_for_species(taxon_id, species_name):
                     f.write(response.content)
             except Exception as e:
                 print(f"Erreur lors du téléchargement de l'image {i+1} pour {species_name}: {e}")
+    
+    geometry = [Point(lon, lat) for lat, lon in coordinates]  # Créer une géométrie Point pour chaque coordonnée
+    geo_df = gpd.GeoDataFrame(geometry=geometry, crs="EPSG:4004")  # Assure-toi que le CRS correspond
+
+    # Faire l'intersection avec le shapefile (qui peut contenir des polygones, par exemple)
+    intersection = gpd.sjoin(geo_df, shapefile, how="inner", predicate='intersects')
+
+    # Récupérer les valeurs associées à chaque point
+    with open(f'{species_dir}/climate_data.txt', 'w') as file:
+        for idx, row in intersection.iterrows():
+            lat, lon = row.geometry.y, row.geometry.x
+            # Suppose que 'attribut' est une colonne de la table attributaire du shapefile
+            climate = row['CLIMATE']
+            subclimate = row['SUB-CLIMAT']
+            subsubclimate = row['SUB-SUB-CL']
+            file.write(f"{climate}, {subclimate}, {subsubclimate}\n")
 
 # Récupérer les premières `num_species` espèces d'oiseaux
 bird_species = get_bird_species()
