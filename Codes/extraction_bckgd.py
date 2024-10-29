@@ -70,3 +70,60 @@ output_background_dir = "../Donnees/ birds_dataset/Ardea_herodias/labels/exp/cro
 # Extrait le background avec une marge de 10%
 extract_background_with_margin(image_file, bbox_file, output_background_dir, margin=0.1)
 
+
+
+
+
+
+import cv2
+import os
+
+
+def is_blurry(image_path, threshold=100):
+    """
+    Vérifie si une image est floue en utilisant la variance de la Laplacienne.
+
+    :param image_path: Chemin vers l'image à vérifier.
+    :param threshold: Seuil en dessous duquel l'image est considérée comme floue.
+    :return: Booléen indiquant si l'image est floue ou non, et la variance de la Laplacienne.
+    """
+    # Charger l'image en niveau de gris
+    image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    if image is None:
+        print(f"Impossible de charger l'image {image_path}")
+        return False, 0
+
+    # Calculer la Laplacienne de l'image
+    laplacian = cv2.Laplacian(image, cv2.CV_64F)
+
+    # Calculer la variance de la Laplacienne
+    variance = laplacian.var()
+
+    # Vérifier si l'image est floue en comparant la variance au seuil
+    return variance < threshold, variance
+
+
+def check_blurriness_in_folders(parent_folder, threshold=100):
+    """
+    Parcourt les sous-dossiers d'un dossier parent pour vérifier si les images sont floues.
+
+    :param parent_folder: Chemin vers le dossier parent contenant les sous-dossiers d'images.
+    :param threshold: Seuil de flou.
+    """
+    for root, _, files in os.walk(parent_folder):
+        for file in files:
+            if file.lower().endswith(('.png', '.jpg', '.jpeg')):
+                image_path = os.path.join(root, file)
+                blurry, variance = is_blurry(image_path, threshold)
+
+                # Afficher les résultats
+                if blurry:
+                    print(f"[FLU] {image_path} - Variance: {variance:.2f}")
+                else:
+                    print(f"[NETTE] {image_path} - Variance: {variance:.2f}")
+
+
+# Exécuter la détection de flou sur le dossier parent
+parent_folder = "../Donnees/ birds_dataset"
+check_blurriness_in_folders(parent_folder, threshold=100)
+
