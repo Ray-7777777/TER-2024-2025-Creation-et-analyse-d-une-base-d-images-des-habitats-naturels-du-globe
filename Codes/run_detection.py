@@ -1,16 +1,16 @@
-import os
+"""import os
 import cv2
 
 
 # Fonction pour récupérer les fragments de background
 def extract_background(image_path, bbox_file, output_dir):
-    """
+    ""
     Extrait le background d'une image en excluant la zone définie par les boîtes englobantes (bounding boxes).
 
     :param image_path: Chemin vers l'image originale
     :param bbox_file: Chemin vers le fichier texte contenant les coordonnées des bounding boxes
     :param output_dir: Répertoire où enregistrer l'image de background
-    """
+    ""
     if not os.path.exists(image_file):
         print(f"Le fichier image {image_file} n'existe pas.")
         return
@@ -56,5 +56,50 @@ output_background_dir = r'..\Données\birds_dataset\Ardea_herodias\labels\exp'
 
 # Extrait le background
 extract_background(image_file, bbox_file, output_background_dir)
+"""
+
+import os
+import subprocess
+
+# Chemin vers le dossier des espèces
+birds_dataset_path = r"../Donnees/birds_dataset"  # Remplacez par le chemin réel
+detect_script_path = r"../../yolov5/detect.py"  # Remplacez par le chemin vers detect.py
+weights_path = r"../../yolov5/yolov5s.pt"  # Chemin vers le fichier de poids du modèle
+img_size = 640  # Taille d'image
+conf_thres = 0.25  # Seuil de confiance
+
+# Parcourir chaque espèce dans le dossier birds_dataset
+for species in os.listdir(birds_dataset_path):
+    species_path = os.path.join(birds_dataset_path, species)
+
+    if os.path.isdir(species_path):
+        train_path = os.path.join(species_path, 'train')
+
+        if os.path.exists(train_path):
+            print(f"Traitement des images dans le dossier : {train_path}")
+
+            # Exécuter detect.py sur chaque image dans le dossier train
+            command = [
+                'python', detect_script_path,
+                '--source', train_path,
+                '--weights', weights_path,
+                '--img-size', str(img_size),
+                '--conf-thres', str(conf_thres),
+                '--save-txt',  # Pour sauvegarder les résultats dans des fichiers texte
+                '--project', train_path,  # Spécifie le dossier pour enregistrer les résultats
+                '--name', 'results'  # Nom du dossier où seront enregistrés les résultats
+            ]
+
+            # Exécuter la commande
+            subprocess.run(command)
+
+print("Détection terminée pour toutes les espèces.")
+
+
+
+
+
+
+
 
 

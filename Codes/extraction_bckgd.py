@@ -1,16 +1,9 @@
 import os
 import cv2
 
-
-# Fonction pour récupérer les fragments de background
-def extract_background_with_margin(image_path, bbox_file, output_dir, margin=0.1):
+def extract_margin_areas(image_path, bbox_file, output_dir, species, margin=0.75):
     """
-    Extrait une zone autour de la bounding box d'une image, en incluant une marge.
-
-    :param image_path: Chemin vers l'image originale
-    :param bbox_file: Chemin vers le fichier texte contenant les coordonnées des bounding boxes
-    :param output_dir: Répertoire où enregistrer l'image de background
-    :param margin: Pourcentage de marge à ajouter autour de la bounding box (par défaut 10%)
+    Extrait les zones correspondant aux marges autour de la bounding box d'une image.
     """
     # Vérifier si l'image existe
     if not os.path.exists(image_path):
@@ -30,7 +23,7 @@ def extract_background_with_margin(image_path, bbox_file, output_dir, margin=0.1
 
     # Lire les coordonnées des boîtes englobantes depuis le fichier .txt
     with open(bbox_file, 'r') as f:
-        for line in f:
+        for index, line in enumerate(f):
             # YOLOv5 format : class x_center y_center width height
             bbox = line.strip().split()
             _, x_center, y_center, width, height = map(float, bbox)
@@ -46,84 +39,57 @@ def extract_background_with_margin(image_path, bbox_file, output_dir, margin=0.1
             margin_w = int(width * margin)
             margin_h = int(height * margin)
 
-            # Ajouter une marge autour de la bounding box
-            x1 = max(0, int(x_center - width / 2 - margin_w))  # S'assurer que les coordonnées restent dans l'image
-            y1 = max(0, int(y_center - height / 2 - margin_h))
-            x2 = min(img_w, int(x_center + width / 2 + margin_w))
-            y2 = min(img_h, int(y_center + height / 2 + margin_h))
+            # Déterminer les coordonnées
+            x1 = max(0, int(x_center - width / 2))
+            y1 = max(0, int(y_center - height / 2))
+            x2 = min(img_w, int(x_center + width / 2))
+            y2 = min(img_h, int(y_center + height / 2))
 
-            # Extraire la zone du background
-            background_area = image[y1:y2, x1:x2]
+            # Définir les zones des marges
+            top_margin = image[max(0, y1 - margin_h):y1, x1:x2]  # Marge supérieure
+            bottom_margin = image[y2:min(img_h, y2 + margin_h), x1:x2]  # Marge inférieure
+            left_margin = image[y1:y2, max(0, x1 - margin_w):x1]  # Marge gauche
+            right_margin = image[y1:y2, x2:min(img_w, x2 + margin_w)]  # Marge droite
 
-            # Sauvegarder l'image de background
-            os.makedirs(output_dir, exist_ok=True)
-            background_output_path = os.path.join(output_dir, f'background_{os.path.basename(image_path)}')
-            cv2.imwrite(background_output_path, background_area)
-            print(f"Background extrait et sauvegardé : {background_output_path}")
+            # Créer un sous-dossier pour l'espèce
+            species_output_dir = os.path.join(output_dir, species)
+            os.makedirs(species_output_dir, exist_ok=True)
 
+            # Sauvegarder les images des marges seulement si elles ne sont pas vides
+            if top_margin.size > 0:
+                cv2.imwrite(os.path.join(species_output_dir, f'top_margin_{os.path.splitext(os.path.basename(image_path))[0]}_{index + 1}.jpg'), top_margin)
+            if bottom_margin.size > 0:
+                cv2.imwrite(os.path.join(species_output_dir, f'bottom_margin_{os.path.splitext(os.path.basename(image_path))[0]}_{index + 1}.jpg'), bottom_margin)
+            if left_margin.size > 0:
+                cv2.imwrite(os.path.join(species_output_dir, f'left_margin_{os.path.splitext(os.path.basename(image_path))[0]}_{index + 1}.jpg'), left_margin)
+            if right_margin.size > 0:
+                cv2.imwrite(os.path.join(species_output_dir, f'right_margin_{os.path.splitext(os.path.basename(image_path))[0]}_{index + 1}.jpg'), right_margin)
 
-# Exemple d'utilisation après la détection
-image_file = r"C:\Users\alvin\Documents\M1 MIASHS\S1\TER\TER-2024-2025-Creation-et-analyse-d-une-base-d-images-des-habitats-naturels-du-globe\Donnees\birds_dataset2\Ardea_alba\test\Ardea_alba_1.jpg"  # Chemin vers l'image originale
-bbox_file = r"../Donnees/ birds_dataset/Ardea_herodias/labels/exp/labels/Ardea_herodias_1.txt"  # Chemin vers le fichier des bounding boxes
-output_background_dir = "../Donnees/ birds_dataset/Ardea_herodias/labels/exp/crops"  # Répertoire pour sauvegarder le background
+            print(f"Marges extraites et sauvegardées pour : {image_path}")
 
-# Extrait le background avec une marge de 10%
-extract_background_with_margin(image_file, bbox_file, output_background_dir, margin=0.1)
-
-
-
-
-
-
-import cv2
-import os
-
-
-def is_blurry(image_path, threshold=100):
+def process_all_images(parent_folder, output_folder, margin=0.1):
     """
-    Vérifie si une image est floue en utilisant la variance de la Laplacienne.
-
-    :param image_path: Chemin vers l'image à vérifier.
-    :param threshold: Seuil en dessous duquel l'image est considérée comme floue.
-    :return: Booléen indiquant si l'image est floue ou non, et la variance de la Laplacienne.
+    Parcourt toutes les images dans un dossier et extrait les marges autour de la boîte englobante.
     """
-    # Charger l'image en niveau de gris
-    image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
-    if image is None:
-        print(f"Impossible de charger l'image {image_path}")
-        return False, 0
+    os.makedirs(output_folder, exist_ok=True)
 
-    # Calculer la Laplacienne de l'image
-    laplacian = cv2.Laplacian(image, cv2.CV_64F)
+    for species in os.listdir(parent_folder):
+        species_path = os.path.join(parent_folder, species)
 
-    # Calculer la variance de la Laplacienne
-    variance = laplacian.var()
+        if os.path.isdir(species_path):
+            train_path = os.path.join(species_path, 'train')
+            bbox_folder = os.path.join(species_path, 'train', 'results', 'labels')  # Chemin vers le dossier des boîtes englobantes
 
-    # Vérifier si l'image est floue en comparant la variance au seuil
-    return variance < threshold, variance
+            if os.path.exists(train_path):
+                for file in os.listdir(train_path):
+                    if file.lower().endswith(('.png', '.jpg', '.jpeg')):
+                        image_path = os.path.join(train_path, file)
+                        bbox_file = os.path.join(bbox_folder, f"{os.path.splitext(file)[0]}.txt")  # Assurer que le nom du fichier correspond
+                        extract_margin_areas(image_path, bbox_file, output_folder, species)
 
+# Exécution de l'extraction des marges pour toutes les images
+parent_folder = r"C:\Users\alvin\Documents\M1 MIASHS\S1\TER\TER-2024-2025-Creation-et-analyse-d-une-base-d-images-des-habitats-naturels-du-globe\Donnees\birds_dataset"  # Dossier des images
+output_folder = r"../Donnees/birds_dataset/Background_margins"  # Dossier de sortie pour les images de marges
 
-def check_blurriness_in_folders(parent_folder, threshold=100):
-    """
-    Parcourt les sous-dossiers d'un dossier parent pour vérifier si les images sont floues.
-
-    :param parent_folder: Chemin vers le dossier parent contenant les sous-dossiers d'images.
-    :param threshold: Seuil de flou.
-    """
-    for root, _, files in os.walk(parent_folder):
-        for file in files:
-            if file.lower().endswith(('.png', '.jpg', '.jpeg')):
-                image_path = os.path.join(root, file)
-                blurry, variance = is_blurry(image_path, threshold)
-
-                # Afficher les résultats
-                if blurry:
-                    print(f"[FLU] {image_path} - Variance: {variance:.2f}")
-                else:
-                    print(f"[NETTE] {image_path} - Variance: {variance:.2f}")
-
-
-# Exécuter la détection de flou sur le dossier parent
-parent_folder = "../Donnees/ birds_dataset"
-check_blurriness_in_folders(parent_folder, threshold=100)
-
+# Processus d'extraction
+process_all_images(parent_folder, output_folder, margin=0.75)
