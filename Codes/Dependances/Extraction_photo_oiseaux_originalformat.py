@@ -4,11 +4,11 @@ import geopandas as gpd
 from shapely.geometry import Point
 
 # Dossier parent pour toutes les espèces d'oiseaux
-dataset_dir = '..\\..\\Donnees\\birds_dataset'
+dataset_dir = '..\\Donnees\\birds_dataset'
 os.makedirs(dataset_dir, exist_ok=True)
 
 # Shapefile pour l'occupation des sols
-shapefile = gpd.read_file("../../Donnees/climates/climates.shp")
+shapefile = gpd.read_file("../Donnees/climates/climates.shp")
 
 # Nombre d'espèces et d'images par espèce
 num_species = 2
