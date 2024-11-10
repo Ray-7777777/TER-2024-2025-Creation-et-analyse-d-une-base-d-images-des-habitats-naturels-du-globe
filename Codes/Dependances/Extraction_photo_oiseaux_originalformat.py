@@ -2,17 +2,22 @@ import os
 import requests
 import geopandas as gpd
 from shapely.geometry import Point
+import climatsEtHabitats
 
 # Dossier parent pour toutes les espèces d'oiseaux
-dataset_dir = '..\\..\\Donnees\\birds_dataset'
+dataset_dir = '..\\Donnees\\birds_dataset'
 os.makedirs(dataset_dir, exist_ok=True)
 
-# Shapefile pour l'occupation des sols
-shapefile = gpd.read_file("../../Donnees/climates/climates.shp")
+# Shapefile pour les climats
+shapefile_climats = gpd.read_file("../Donnees/climates/climates.shp")
+
+# Csv avonet pour les habitats
+avonet = "../Donnees/avonet/AVONET2_eBird.xlsx"
+sheet_name = "AVONET2_eBird"
 
 # Nombre d'espèces et d'images par espèce
 num_species = 2
-num_images_per_species = 2
+num_images_per_species = 5
 
 # Fonction pour récupérer les espèces d'oiseaux
 def get_bird_species():
@@ -47,7 +52,6 @@ def get_bird_species():
 
     return species_list[:num_species]
 
-# Fonction pour télécharger les images d'une espèce
 def download_images_for_species(taxon_id, species_name):
     observations = []
     page = 1
@@ -88,15 +92,20 @@ def download_images_for_species(taxon_id, species_name):
     coordinates = []
 
     for obs in observations:
-        geojson_coords = obs.get('geojson', {}).get('coordinates', None)
-        
-        if geojson_coords:  # Vérifie si des coordonnées sont disponibles
-            longitude, latitude = geojson_coords  # Les coordonnées sont dans l'ordre [longitude, latitude]
-            coordinates.append((latitude, longitude))  # Ajoute les coordonnées à la liste
-        else:
-            print("Aucune coordonnée disponible")
+        # Vérification si 'obs' est un dictionnaire valide
+        if obs and isinstance(obs, dict):
+            geojson_coords = obs.get('geojson', {}).get('coordinates', None)
 
-        if 'photos' in obs:  # Vérifie s'il y a des photos dans l'observation
+            if geojson_coords:  # Vérifie si des coordonnées sont disponibles
+                longitude, latitude = geojson_coords  # Les coordonnées sont dans l'ordre [longitude, latitude]
+                coordinates.append((latitude, longitude))  # Ajoute les coordonnées à la liste
+            else:
+                print(f"Aucune coordonnée disponible pour l'observation {obs.get('id', 'ID inconnu')}")
+        else:
+            print(f"Observation invalide ou mal formatée pour {species_name}")
+
+        # Vérifie si 'photos' existe et contient des données
+        if 'photos' in obs:
             for photo in obs['photos']:
                 # Utiliser l'URL de la photo existante et ajouter "original" au bon format
                 base_url = photo['url'].rsplit('/', 1)[0]  # Récupère la base de l'URL
@@ -114,33 +123,30 @@ def download_images_for_species(taxon_id, species_name):
         species_dir = os.path.join(dataset_dir, species_name)
         os.makedirs(species_dir, exist_ok=True)
 
-        # Télécharger les images
+        # Télécharger les images, gérer les erreurs pour chaque image
         for i, url in enumerate(photo_urls):
             try:
                 # Extraire l'extension du fichier à partir de l'URL (ex: .jpg, .png)
                 file_extension = url.split('.')[-1]
                 response = requests.get(url)
+                response.raise_for_status()  # Lève une exception si le téléchargement échoue
                 with open(f'{species_dir}/{species_name}_{i+1}.{file_extension}', 'wb') as f:
                     f.write(response.content)
             except Exception as e:
                 print(f"Erreur lors du téléchargement de l'image {i+1} pour {species_name}: {e}")
+                continue  # Passer à l'image suivante même en cas d'erreur
+
+    # Traiter les géométries et le shapefile
+    if coordinates:
+        climatsEtHabitats.climats(coordinates, shapefile_climats, species_name, dataset_dir)
+
+    climatsEtHabitats.avonet_habitats(avonet, sheet_name, species_name, dataset_dir)
     
-    geometry = [Point(lon, lat) for lat, lon in coordinates]  # Créer une géométrie Point pour chaque coordonnée
-    geo_df = gpd.GeoDataFrame(geometry=geometry, crs="EPSG:4004")  # Assure-toi que le CRS correspond
 
-    # Faire l'intersection avec le shapefile (qui peut contenir des polygones, par exemple)
-    intersection = gpd.sjoin(geo_df, shapefile, how="inner", predicate='intersects')
+# Récupérer les premières `num_species` espèces d'oiseaux
+bird_species = get_bird_species()
 
-    # Récupérer les valeurs associées à chaque point
-    with open(f'{species_dir}/climate_data.txt', 'w') as file:
-        for idx, row in intersection.iterrows():
-            lat, lon = row.geometry.y, row.geometry.x
-            # Suppose que 'attribut' est une colonne de la table attributaire du shapefile
-            climate = row['CLIMATE']
-            subclimate = row['SUB-CLIMAT']
-            subsubclimate = row['SUB-SUB-CL']
-            file.write(f"{climate}, {subclimate}, {subsubclimate}\n")
-
+# Télécharger les images pour chaque espèce d'oiseau
 # Récupérer les premières `num_species` espèces d'oiseaux
 bird_species = get_bird_species()
 
@@ -149,7 +155,12 @@ for species in bird_species:
     species_name = species['name'].replace(" ", "_")  # Nom de l'espèce
     taxon_id = species['id']  # ID taxonomique de l'espèce
     print(f"Téléchargement des images pour {species_name}...")
-    download_images_for_species(taxon_id, species_name)
+    
+    try:
+        download_images_for_species(taxon_id, species_name)  # Télécharger les images pour l'espèce
+    except Exception as e:
+        print(f"Erreur lors du téléchargement des images pour {species_name}: {e}")
+        continue  # Passer à l'espèce suivante en cas d'erreur
 
 print("Téléchargement des images terminé.")
 
