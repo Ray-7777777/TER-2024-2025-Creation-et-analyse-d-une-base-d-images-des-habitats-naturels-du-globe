@@ -11,13 +11,18 @@ os.makedirs(dataset_dir, exist_ok=True)
 # Shapefile pour les climats
 shapefile_climats = gpd.read_file("../Donnees/climates/climates.shp")
 
+# Shapefile pour les ecoregions
+shapefile_ecoregions = gpd.read_file("../Donnees/Ecoregions/wwf_terr_ecos.shp")
+
+raster_ecosystemes = "../Donnees/Ecosystemes/raster"
+
 # Csv avonet pour les habitats
 avonet = "../Donnees/avonet/AVONET2_eBird.xlsx"
 sheet_name = "AVONET2_eBird"
 
 # Nombre d'espèces et d'images par espèce
-num_species = 2
-num_images_per_species = 5
+num_species = 1
+num_images_per_species = 2
 
 # Fonction pour récupérer les espèces d'oiseaux
 def get_bird_species():
@@ -139,6 +144,8 @@ def download_images_for_species(taxon_id, species_name):
     # Traiter les géométries et le shapefile
     if coordinates:
         climatsEtHabitats.climats(coordinates, shapefile_climats, species_name, dataset_dir)
+        climatsEtHabitats.ecoregions(coordinates, shapefile_ecoregions, species_name, dataset_dir)
+        climatsEtHabitats.ecosystemes(coordinates, raster_ecosystemes, species_name, dataset_dir)
 
     climatsEtHabitats.avonet_habitats(avonet, sheet_name, species_name, dataset_dir)
     
