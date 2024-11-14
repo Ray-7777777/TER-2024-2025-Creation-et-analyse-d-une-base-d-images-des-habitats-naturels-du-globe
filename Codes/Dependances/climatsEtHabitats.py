@@ -7,7 +7,6 @@ from rasterio.coords import BoundingBox
 from pyproj import Transformer
 import numpy as np
 import xml.etree.ElementTree as ET
-import re
 
 def climats(coordinates, shapefile, species_name, dataset_dir):
     geometry = [Point(lon, lat) for lat, lon in coordinates]  # Créer une géométrie Point pour chaque coordonnée
