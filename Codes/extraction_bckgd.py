@@ -1,95 +1,161 @@
 import os
 import cv2
+import numpy as np
+import random
 
-def extract_margin_areas(image_path, bbox_file, output_dir, species, margin=0.75):
-    """
-    Extrait les zones correspondant aux marges autour de la bounding box d'une image.
-    """
-    # Vérifier si l'image existe
-    if not os.path.exists(image_path):
-        print(f"Le fichier image {image_path} n'existe pas.")
-        return
+# Chemins des fichiers
+image_path = '../Donnees/Anas_platyrhynchos_6.jpeg'
+txt_file_path = '../Donnees/Anas_platyrhynchos_6.txt'
+output_dir = '../Donnees/'
 
-    # Vérifier si le fichier des bounding boxes existe
-    if not os.path.exists(bbox_file):
-        print(f"Le fichier des boîtes englobantes {bbox_file} n'existe pas.")
-        return
+# Paramètres
+min_region_size = 0.01  # Fraction minimale de la surface totale de l'image
+min_pixel_threshold = 0.01  # Fraction minimale des pixels restants pour continuer
 
-    # Charger l'image originale
-    image = cv2.imread(image_path)
-    if image is None:
-        print(f"Erreur : Impossible de charger l'image {image_path}")
-        return
+# Vérification des fichiers
+if not os.path.exists(image_path):
+    print(f"Erreur : L'image {image_path} est introuvable.")
+    exit()
 
-    # Lire les coordonnées des boîtes englobantes depuis le fichier .txt
-    with open(bbox_file, 'r') as f:
-        for index, line in enumerate(f):
-            # YOLOv5 format : class x_center y_center width height
-            bbox = line.strip().split()
-            _, x_center, y_center, width, height = map(float, bbox)
+if not os.path.exists(txt_file_path):
+    print(f"Erreur : Le fichier texte {txt_file_path} est introuvable.")
+    exit()
 
-            # Convertir les coordonnées relatives en absolues
-            img_h, img_w = image.shape[:2]
-            x_center = int(x_center * img_w)
-            y_center = int(y_center * img_h)
-            width = int(width * img_w)
-            height = int(height * img_h)
+# Charger l'image
+image = cv2.imread(image_path)
+if image is None:
+    print(f"Erreur : Impossible de charger l'image {image_path}")
+    exit()
 
-            # Calculer les coordonnées de la bounding box avec une marge
-            margin_w = int(width * margin)
-            margin_h = int(height * margin)
+# Dimensions de l'image
+image_height, image_width, _ = image.shape
+print(f"Taille de l'image : largeur={image_width}, hauteur={image_height}")
 
-            # Déterminer les coordonnées
-            x1 = max(0, int(x_center - width / 2))
-            y1 = max(0, int(y_center - height / 2))
-            x2 = min(img_w, int(x_center + width / 2))
-            y2 = min(img_h, int(y_center + height / 2))
+# Charger le fichier YOLOv5
+with open(txt_file_path, 'r') as file:
+    mask = np.zeros(image.shape[:2], dtype=np.uint8)
+    bbox_coords = []  # Stocker les coordonnées de toutes les bounding boxes
+    for line in file:
+        class_id, x_center, y_center, width, height = map(float, line.strip().split())
 
-            # Définir les zones des marges
-            top_margin = image[max(0, y1 - margin_h):y1, x1:x2]  # Marge supérieure
-            bottom_margin = image[y2:min(img_h, y2 + margin_h), x1:x2]  # Marge inférieure
-            left_margin = image[y1:y2, max(0, x1 - margin_w):x1]  # Marge gauche
-            right_margin = image[y1:y2, x2:min(img_w, x2 + margin_w)]  # Marge droite
+        # Convertir les coordonnées normalisées en pixels
+        x_center = int(x_center * image_width)
+        y_center = int(y_center * image_height)
+        width = int(width * image_width)
+        height = int(height * image_height)
 
-            # Créer un sous-dossier pour l'espèce
-            species_output_dir = os.path.join(output_dir, species)
-            os.makedirs(species_output_dir, exist_ok=True)
+        # Ajouter une marge de 15% à la bounding box
+        margin_w = int(width * 0.15)
+        margin_h = int(height * 0.15)
+        width += 2 * margin_w
+        height += 2 * margin_h
 
-            # Sauvegarder les images des marges seulement si elles ne sont pas vides
-            if top_margin.size > 0:
-                cv2.imwrite(os.path.join(species_output_dir, f'top_margin_{os.path.splitext(os.path.basename(image_path))[0]}_{index + 1}.jpg'), top_margin)
-            if bottom_margin.size > 0:
-                cv2.imwrite(os.path.join(species_output_dir, f'bottom_margin_{os.path.splitext(os.path.basename(image_path))[0]}_{index + 1}.jpg'), bottom_margin)
-            if left_margin.size > 0:
-                cv2.imwrite(os.path.join(species_output_dir, f'left_margin_{os.path.splitext(os.path.basename(image_path))[0]}_{index + 1}.jpg'), left_margin)
-            if right_margin.size > 0:
-                cv2.imwrite(os.path.join(species_output_dir, f'right_margin_{os.path.splitext(os.path.basename(image_path))[0]}_{index + 1}.jpg'), right_margin)
+        # Calculer les nouvelles coordonnées de la bounding box avec marge
+        x1 = max(0, x_center - width // 2)
+        y1 = max(0, y_center - height // 2)
+        x2 = min(image_width - 1, x_center + width // 2)
+        y2 = min(image_height - 1, y_center + height // 2)
 
-            print(f"Marges extraites et sauvegardées pour : {image_path}")
+        print(f"Bounding Box: x1={x1}, y1={y1}, x2={x2}, y2={y2}")
+        bbox_coords.append((x1, y1, x2, y2))
 
-def process_all_images(parent_folder, output_folder, margin=0.1):
-    """
-    Parcourt toutes les images dans un dossier et extrait les marges autour de la boîte englobante.
-    """
-    os.makedirs(output_folder, exist_ok=True)
+        # Appliquer le masque à la région
+        mask[y1:y2 + 1, x1:x2 + 1] = 255
+        print(f"Masque appliqué pour la bounding box : x1={x1}, y1={y1}, x2={x2}, y2={y2}")
 
-    for species in os.listdir(parent_folder):
-        species_path = os.path.join(parent_folder, species)
+        # Debug : Sauvegarder le masque après chaque mise à jour
+        debug_mask_path = os.path.join(output_dir, f'debug_mask_bbox.jpg')
+        debug_image = image.copy()
+        debug_image[mask == 255] = [0, 0, 255]  # Marquer les zones masquées en rouge
+        cv2.imwrite(debug_mask_path, debug_image)
+        print(f"Masque mis à jour sauvegardé : {debug_mask_path}")
 
-        if os.path.isdir(species_path):
-            train_path = os.path.join(species_path, 'train')
-            bbox_folder = os.path.join(species_path, 'train', 'results', 'labels')  # Chemin vers le dossier des boîtes englobantes
+# Identifier les zones non masquées
+regions_extracted = 0
+min_area = int(min_region_size * image_width * image_height)  # Surface minimale
 
-            if os.path.exists(train_path):
-                for file in os.listdir(train_path):
-                    if file.lower().endswith(('.png', '.jpg', '.jpeg')):
-                        image_path = os.path.join(train_path, file)
-                        bbox_file = os.path.join(bbox_folder, f"{os.path.splitext(file)[0]}.txt")  # Assurer que le nom du fichier correspond
-                        extract_margin_areas(image_path, bbox_file, output_folder, species)
+while np.any(mask == 0):  # Tant qu'il reste des zones non masquées
+    # Identifier les indices des pixels non masqués
+    non_masked_indices = np.argwhere(mask == 0)
 
-# Exécution de l'extraction des marges pour toutes les images
-parent_folder = r"C:\Users\alvin\Documents\M1 MIASHS\S1\TER\TER-2024-2025-Creation-et-analyse-d-une-base-d-images-des-habitats-naturels-du-globe\Donnees\birds_dataset"  # Dossier des images
-output_folder = r"../Donnees/birds_dataset/Background_margins"  # Dossier de sortie pour les images de marges
+    # Condition de sortie si trop peu de pixels non masqués restent
+    if len(non_masked_indices) < min_pixel_threshold * image_width * image_height:
+        print("Proportion de pixels non masqués trop faible. Arrêt.")
+        break
 
-# Processus d'extraction
-process_all_images(parent_folder, output_folder, margin=0.75)
+    # Choisir un point aléatoire parmi les indices valides
+    random_index = random.choice(non_masked_indices)
+    start_x, start_y = random_index[1], random_index[0]
+    print(f"Point aléatoire sélectionné : ({start_x}, {start_y})")
+
+    # Vérifiez si le point est à l'intérieur d'une bounding box
+    inside_bbox = any(x1 <= start_x <= x2 and y1 <= start_y <= y2 for x1, y1, x2, y2 in bbox_coords)
+    if inside_bbox:
+        print(f"Point aléatoire à l'intérieur de la bounding box. Ignoré.")
+        continue
+
+    # Agrandir la région à partir de ce point
+    top, bottom, left, right = start_y, start_y, start_x, start_x
+
+    # Expansion contrôlée dans les 4 directions
+    expanded = True
+    while expanded:
+        expanded = False
+
+        # Expansion vers le haut
+        if top > 0 and not np.any(mask[top - 1, left:right + 1] == 255):
+            top -= 1
+            expanded = True
+
+        # Expansion vers le bas
+        if bottom < image_height - 1 and not np.any(mask[bottom + 1, left:right + 1] == 255):
+            bottom += 1
+            expanded = True
+
+        # Expansion vers la gauche
+        if left > 0 and not np.any(mask[top:bottom + 1, left - 1] == 255):
+            left -= 1
+            expanded = True
+
+        # Expansion vers la droite
+        if right < image_width - 1 and not np.any(mask[top:bottom + 1, right + 1] == 255):
+            right += 1
+            expanded = True
+
+    # Calcul des dimensions
+    region_width = right - left + 1
+    region_height = bottom - top + 1
+    region_area = region_width * region_height
+
+    print(f"Région détectée : top={top}, bottom={bottom}, left={left}, right={right}")
+    print(f"Dimensions de la région : largeur={region_width}, hauteur={region_height}, surface={region_area}")
+
+    # Vérification de validité stricte
+    if region_width <= 0 or region_height <= 0 or region_area < min_area:
+        print(f"Région invalide détectée ({region_width}x{region_height}). Ignorée.")
+        continue
+
+    # Marquer la région comme traitée
+    mask[top:bottom + 1, left:right + 1] = 255
+    print(f"Pixels non masqués après mise à jour : {np.sum(mask == 0)}")
+
+    # Sauvegarder cette région
+    region = image[top:bottom + 1, left:right + 1]
+    if region.size == 0:
+        print("Erreur : Région extraite vide. Ignorée.")
+        continue
+
+    region_path = os.path.join(output_dir, f'background_region_{regions_extracted + 1}.jpg')
+    cv2.imwrite(region_path, region)
+    print(f"Région de fond sauvegardée dans : {region_path}")
+
+    regions_extracted += 1
+
+    # Debug : Sauvegarder le masque après chaque mise à jour
+    debug_mask_path = os.path.join(output_dir, f'debug_mask_region_{regions_extracted}.jpg')
+    debug_image = image.copy()
+    debug_image[mask == 255] = [0, 0, 255]  # Masquer en rouge
+    cv2.imwrite(debug_mask_path, debug_image)
+    print(f"Masque après région sauvegardé : {debug_mask_path}")
+
+print(f"Extraction terminée. {regions_extracted} régions de fond sauvegardées.")
