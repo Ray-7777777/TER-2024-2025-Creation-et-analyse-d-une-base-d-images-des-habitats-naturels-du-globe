@@ -3,11 +3,11 @@ import requests
 import random
 
 # Dossier parent pour toutes les espèces d'oiseaux
-dataset_dir = r'..\Données\birds_dataset'
+dataset_dir = r'..\Donnees\birds_dataset'
 os.makedirs(dataset_dir, exist_ok=True)
 
 # Nombre d'espèces et d'images par espèce
-num_species = 10
+num_species = 5
 num_images_per_species = 10
 
 # Fonction pour récupérer les espèces d'oiseaux
