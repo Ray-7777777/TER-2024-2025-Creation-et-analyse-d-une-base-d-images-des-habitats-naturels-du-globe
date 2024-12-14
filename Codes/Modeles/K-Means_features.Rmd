@@ -1,0 +1,144 @@
+---
+title: "K-means"
+author: "Niyonkuru Berline"
+date: "2024-11-14"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# K-means des features climats et des features oiseaux
+Introduction
+
+Dans ce rapport, nous utilisons l'algorithme de K-means pour regrouper les caractéristiques des oiseaux avec celles des climats. Le nombre optimal de clusters est déterminé en utilisant la méthode du coude et la silhouette moyenne pour évaluer la cohérence du modèle.
+Chargement des Bibliothèques
+
+
+```{r}
+# Installer les packages si nécessaire
+if (!require("dplyr")) install.packages("dplyr")
+if (!require("ggplot2")) install.packages("ggplot2")
+if (!require("cluster")) install.packages("cluster")
+if (!require("factoextra")) install.packages("factoextra")
+```
+
+
+```{r}
+# Charger les bibliothèques
+library(dplyr)
+library(ggplot2)
+library(cluster)
+library(factoextra)
+```
+
+
+# Charger les données des caractéristiques des oiseaux et du background
+```{r}
+birds_data <- read.csv("../../Donnees/birdS_HOG_features_database.csv")
+#climate_data <- read.csv("climate_features.csv")
+
+```
+
+# Fusionner les données
+
+```{r}
+#data <- merge(birds_data, climate_data, by = "bird_id")
+```
+
+
+# Afficher un aperçu des données
+```{r}
+head(birds_data)
+```
+
+
+Pour que chaque caractéristique ait le même poids dans le modèle, les données sont normalisées.
+
+# Normaliser les données (en excluant la colonne 'bird_id')
+```{r}
+data_scaled <- scale(birds_data[, -1])
+```
+
+
+Nous utilisons ici la méthode du coude et le score de silhouette pour choisir le nombre de clusters optimal.
+
+# Utilisation de la méthode du coude
+```{r}
+fviz_nbclust(data_scaled, kmeans, method = "wss") +
+  geom_vline(xintercept = 3, linetype = 2) +
+  labs(title = "Détermination du nombre optimal de clusters - Méthode du coude")
+```
+
+
+# Score de silhouette pour évaluer la cohésion des clusters
+```{r}
+fviz_nbclust(data_scaled, kmeans, method = "silhouette") +
+  labs(title = "Score de silhouette pour le choix du nombre de clusters")
+```
+
+
+Application de K-means
+
+```{r}
+set.seed(123)  # Pour la reproductibilité
+k_optimal <- 2  # Remplacez par le nombre optimal déterminé précédemment
+kmeans_result <- kmeans(data_scaled, centers = k_optimal, nstart = 25)
+```
+
+
+# Ajouter les clusters aux données d'origine
+```{r}
+data$cluster <- as.factor(kmeans_result$cluster)
+```
+
+
+Nous affichons plusieurs métriques pour évaluer la qualité du modèle K-means.
+Inertie Intra-Cluster Moyenne
+
+# Calcul de l'inertie intra-cluster
+```{r}
+intra_cluster_inertia <- kmeans_result$tot.withinss
+print(paste("Inertie intra-cluster totale :", round(intra_cluster_inertia, 2)))
+```
+
+
+Score de Silhouette Moyenne
+
+Le score de silhouette moyenne mesure la cohésion et la séparation des clusters.
+
+# Calculer le score de silhouette
+```{r}
+silhouette_score <- silhouette(kmeans_result$cluster, dist(data_scaled))
+avg_silhouette <- mean(silhouette_score[, 3])
+print(paste("Score de silhouette moyen :", round(avg_silhouette, 2)))
+
+```
+
+Visualisation des Clusters
+
+Nous utilisons ici l'analyse en composantes principales (PCA) pour visualiser les clusters en 2D.
+
+# Réduire les dimensions avec PCA
+```{r}
+pca_result <- prcomp(data_scaled)
+data_pca <- as.data.frame(pca_result$x[, 1:2])
+data_pca$cluster <- data$cluster
+```
+
+
+# Visualisation en 2D
+```{r}
+ggplot(data_pca, aes(x = PC1, y = PC2, color = cluster)) +
+  geom_point(size = 2) +
+  labs(title = "Visualisation des clusters en 2D avec PCA",
+       x = "Composante Principale 1", y = "Composante Principale 2") +
+  theme_minimal()
+```
+
+
+# Conclusion
+
+Dans cette analyse, nous avons utilisé K-means pour regrouper les observations basées sur les caractéristiques des oiseaux et du climat. Les métriques telles que l'inertie intra-cluster et le score de silhouette nous permettent d'évaluer la cohésion et la séparation des clusters obtenus.
+

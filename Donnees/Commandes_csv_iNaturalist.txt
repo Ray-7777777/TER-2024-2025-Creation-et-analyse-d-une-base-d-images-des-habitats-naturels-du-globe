@@ -1,0 +1,5 @@
+Voici les commandes à exécuter dans le terminal pour récupérer les csv permettant l'éxécution du script de récupération de photo par AWS:
+
+aws s3 cp s3://inaturalist-open-data/observations.csv.gz ./ --no-sign-request
+aws s3 cp s3://inaturalist-open-data/photos.csv.gz ./ --no-sign-request
+aws s3 cp s3://inaturalist-open-data/taxa.csv.gz ./ --no-sign-request
