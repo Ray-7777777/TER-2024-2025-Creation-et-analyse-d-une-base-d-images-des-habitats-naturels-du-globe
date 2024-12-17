@@ -59,7 +59,7 @@ output_folder = "../Donnees/data_nettoye"
 check_and_copy_net_images(parent_folder, output_folder, threshold=100)
 
 
-"""
+
 
 import os
 import cv2
@@ -72,12 +72,12 @@ logging.basicConfig(filename='image_classification.log', level=logging.INFO, for
 
 
 def calculate_entropy(image_path):
-    """
+    ""
     Calcule l'entropie d'une image en niveau de gris.
 
     :param image_path: Chemin vers l'image à analyser.
     :return: L'entropie de l'image.
-    """
+    ""
     image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
     if image is None:
         logging.error(f"Impossible de charger l'image {image_path}")
@@ -94,27 +94,27 @@ def calculate_entropy(image_path):
 
 
 def is_blurry(image_path, threshold=5):
-    """
+    ""
     Vérifie si une image est floue en utilisant l'entropie.
 
     :param image_path: Chemin vers l'image à vérifier.
     :param threshold: Seuil en dessous duquel l'image est considérée comme floue.
     :return: Booléen indiquant si l'image est floue ou non, et l'entropie de l'image.
-    """
+    ""
     entropy = calculate_entropy(image_path)
 
     return entropy < threshold, entropy
 
 
 def classify_images(parent_folder, sharp_folder, blurry_folder, threshold=5):
-    """
+    ""
     Parcourt le dossier parent pour classifier les images comme floues ou nettes.
 
     :param parent_folder: Dossier parent contenant les images.
     :param sharp_folder: Dossier où sauvegarder les images nettes.
     :param blurry_folder: Dossier où sauvegarder les images floues.
     :param threshold: Seuil d'entropie pour déterminer si l'image est floue.
-    """
+    ""
     os.makedirs(sharp_folder, exist_ok=True)
     os.makedirs(blurry_folder, exist_ok=True)
 
@@ -139,3 +139,113 @@ sharp_folder = r"../Donnees/sharp_images"  # Dossier pour les images nettes
 blurry_folder = r"../Donnees/blurry_images"  # Dossier pour les images floues
 
 classify_images(parent_folder, sharp_folder, blurry_folder, threshold=5)
+"""
+
+
+import cv2
+import numpy as np
+import os
+import shutil
+
+def variance_of_laplacian(image):
+    """
+    Calcule la variance du Laplacien pour détecter la netteté de l'image.
+    Une faible variance signifie que l'image est floue.
+    """
+    # Appliquer l'opérateur de Laplace et calculer la variance
+    return cv2.Laplacian(image, cv2.CV_64F).var()
+
+def calculate_fft(image):
+    """
+    Applique la transformée de Fourier pour mesurer le flou à partir du spectre de fréquence.
+    Une image floue aura un spectre de fréquence plus faible.
+    """
+    # Appliquer la transformée de Fourier
+    fft_image = np.fft.fft2(image)
+    fft_shifted = np.fft.fftshift(fft_image)  # Déplacer les fréquences basses au centre
+    magnitude_spectrum = np.log(np.abs(fft_shifted) + 1)  # Calculer le spectre de magnitude
+    blur_metric = np.mean(magnitude_spectrum)  # Moyenne des magnitudes
+    return blur_metric
+
+def is_blurry(image_path, threshold_laplacian=20, threshold_fft=3):
+    """
+    Détecte si une image est floue en utilisant les méthodes Laplacien et FFT.
+    """
+    image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    if image is None:
+        print(f"Impossible de charger l'image {image_path}")
+        return False, 0, 0
+
+    # Calcul de la variance du Laplacien
+    laplacian_variance = variance_of_laplacian(image)
+
+    # Calcul de la métrique de flou FFT
+    fft_blur_metric = calculate_fft(image)
+
+    # Vérification du flou basé sur les seuils
+    is_blurry_laplacian = laplacian_variance < threshold_laplacian
+    is_blurry_fft = fft_blur_metric < threshold_fft
+
+    return is_blurry_laplacian or is_blurry_fft, laplacian_variance, fft_blur_metric
+
+
+def add_text_with_black_background(image, laplacian_variance, fft_blur_metric, position=(10, 30), font_scale=0.5,
+                                   thickness=1):
+    """
+    Ajoute le score de flou (variance du Laplacien et métrique FFT) sur l'image.
+    """
+    text = f'Laplacian: {laplacian_variance:.2f}, FFT: {fft_blur_metric:.2f}'
+
+    # Assurer que 'thickness' est un entier
+    thickness = int(thickness)
+
+    (text_width, text_height), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)
+    cv2.rectangle(image, (position[0], position[1] - text_height - 10),
+                  (position[0] + text_width + 5, position[1] + 10), (0, 0, 0), cv2.FILLED)
+    cv2.putText(image, text, (position[0], position[1]), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 255, 255),
+                thickness)
+
+
+def classify_images(parent_folder, sharp_folder, blurry_folder, threshold_laplacian=30, threshold_fft=5):
+    """
+    Parcourt un dossier d'images, et classe les images comme floues ou nettes en fonction des seuils.
+    La structure des dossiers inclut des sous-dossiers pour chaque espèce sous `nom_espèce/train`.
+    """
+    os.makedirs(sharp_folder, exist_ok=True)
+    os.makedirs(blurry_folder, exist_ok=True)
+
+    # Parcourir chaque espèce dans le dossier parent
+    for species_folder in os.listdir(parent_folder):
+        species_path = os.path.join(parent_folder, species_folder, 'train')  # Chemin vers le dossier `train` de chaque espèce
+        if os.path.isdir(species_path):
+            for root, _, files in os.walk(species_path):
+                for file in files:
+                    if file.lower().endswith(('.png', '.jpg', '.jpeg')):
+                        image_path = os.path.join(root, file)
+                        blurry, laplacian_variance, fft_blur_metric = is_blurry(image_path, threshold_laplacian, threshold_fft)
+
+                        # Charger l'image pour l'annoter et afficher les résultats
+                        image = cv2.imread(image_path)
+
+                        # Ajouter le texte avec les mesures de flou
+                        add_text_with_black_background(image, laplacian_variance, fft_blur_metric)
+
+                        # Afficher les résultats et déplacer l'image
+                        if blurry:
+                            print(f"[FLU] {image_path} - Laplacian Variance: {laplacian_variance:.2f}, FFT Metric: {fft_blur_metric:.2f}")
+                            shutil.copy(image_path, blurry_folder)  # Copier l'image floue
+                        else:
+                            print(f"[NETTE] {image_path} - Laplacian Variance: {laplacian_variance:.2f}, FFT Metric: {fft_blur_metric:.2f}")
+                            shutil.copy(image_path, sharp_folder)  # Copier l'image nette
+
+                        # Optionnel : Afficher l'image avec les annotations
+                        cv2.imshow('Image with Blur Metrics', image)
+                        cv2.waitKey(0)
+                        cv2.destroyAllWindows()
+
+# Exécution de la classification d'images
+parent_folder = r"..\Donnees\birds_dataset2"  # Dossier contenant les images
+sharp_folder = r"..\Donnees\sharp_images"  # Dossier pour les images nettes
+blurry_folder = r"..\Donnees\blurry_images"  # Dossier pour les images floues
+
+classify_images(parent_folder, sharp_folder, blurry_folder, threshold_laplacian=15, threshold_fft=7)
