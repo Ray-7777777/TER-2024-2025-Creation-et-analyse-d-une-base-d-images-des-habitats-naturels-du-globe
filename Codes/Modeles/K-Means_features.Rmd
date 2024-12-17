@@ -83,8 +83,13 @@ Application de K-means
 
 ```{r}
 set.seed(123)  # Pour la reproductibilité
-k_optimal <- 2  # Remplacez par le nombre optimal déterminé précédemment
+k_optimal <- 31  # Remplacez par le nombre optimal déterminé précédemment
 kmeans_result <- kmeans(data_scaled, centers = k_optimal, nstart = 25)
+```
+
+```{r}
+nrow(birds_data) == length(kmeans_result$cluster)
+
 ```
 
 
@@ -120,8 +125,15 @@ Visualisation des Clusters
 
 Nous utilisons ici l'analyse en composantes principales (PCA) pour visualiser les clusters en 2D.
 
+
 # Réduire les dimensions avec PCA
 ```{r}
+# Recréer `data` à partir des données normalisées
+data <- as.data.frame(data_scaled)
+
+# Ajouter les clusters issus du K-means
+data$cluster <- as.factor(kmeans_result$cluster)
+
 pca_result <- prcomp(data_scaled)
 data_pca <- as.data.frame(pca_result$x[, 1:2])
 data_pca$cluster <- data$cluster
