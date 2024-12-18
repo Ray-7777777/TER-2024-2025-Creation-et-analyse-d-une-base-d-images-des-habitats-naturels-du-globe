@@ -1,0 +1,2 @@
+Coordinates (36.0020104, -78.9311324): M2.1 Epipelagic ocean waters, Major occurrence, M2.2 Mesopelagic ocean water, Major occurrence, M2.3 Bathypelagic ocean waters, Major occurrence, M2.4 Abyssopelagic ocean waters, Major occurrence, M3.3 Abyssal plains, Major occurrence
+Coordinates (35.8850166667, -79.0696861667): M2.1 Epipelagic ocean waters, Major occurrence, M2.2 Mesopelagic ocean water, Major occurrence, M2.3 Bathypelagic ocean waters, Major occurrence, M2.4 Abyssopelagic ocean waters, Major occurrence, M3.3 Abyssal plains, Major occurrence
