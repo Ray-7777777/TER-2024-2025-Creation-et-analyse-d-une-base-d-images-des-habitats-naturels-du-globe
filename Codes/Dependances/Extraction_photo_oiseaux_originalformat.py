@@ -1,7 +1,6 @@
 import os
 import requests
 import geopandas as gpd
-from shapely.geometry import Point
 import climatsEtHabitats
 
 # Dossier parent pour toutes les espèces d'oiseaux
@@ -141,7 +140,7 @@ def download_images_for_species(taxon_id, species_name):
                 print(f"Erreur lors du téléchargement de l'image {i+1} pour {species_name}: {e}")
                 continue  # Passer à l'image suivante même en cas d'erreur
 
-    # Traiter les géométries et le shapefile
+    # Appel des fonctions pour récupérer le climat, le(s) ecosystème(s), l'habitat et l'écorégion associés aux coordonnées de l'observation
     if coordinates:
         climatsEtHabitats.climats(coordinates, shapefile_climats, species_name, dataset_dir)
         climatsEtHabitats.ecoregions(coordinates, shapefile_ecoregions, species_name, dataset_dir)
