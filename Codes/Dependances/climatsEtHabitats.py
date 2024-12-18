@@ -3,9 +3,7 @@ import geopandas as gpd
 import pandas as pd
 from shapely.geometry import Point
 import rasterio
-from rasterio.coords import BoundingBox
 from pyproj import Transformer
-import numpy as np
 import xml.etree.ElementTree as ET
 
 def climats(coordinates, shapefile, species_name, dataset_dir):
@@ -101,10 +99,10 @@ def ecosystemes(coordinates, dossier_raster, species_name, dataset_dir, src_epsg
     efg_map = {}
 
     # Parcourir le fichier XML et remplir le dictionnaire
-    for map_element in root.findall('Maps/Map'):  # Correction du chemin dans le XML
+    for map_element in root.findall('Maps/Map'):  # Chemin des informations dans le XML
         efg_code = map_element.get('efg_code')  # Extraire le code efg_code
         description = map_element.find('Functional_group').text  # Extraire la description (Functional_group)
-        efg_map[efg_code] = description  # Associer efg_code à la description
+        efg_map[efg_code] = description
 
     # Initialisation du dictionnaire pour stocker les résultats de tous les points
     for coords in coordinates:
@@ -120,11 +118,7 @@ def ecosystemes(coordinates, dossier_raster, species_name, dataset_dir, src_epsg
         raster_file = os.path.join(dossier_raster, fichier)
 
         # Extraire le code efg_code du nom du fichier raster
-        # Exemple: "M2.2.web.orig_v2.0.tif" -> "M2.2" et pas seulement "M2"
-        efg_code = '.'.join(fichier.split('.')[:2])  # Extraire "M2.2" au lieu de juste "M2"
-
-        # Vérifier si ce code existe dans le dictionnaire des descriptions
-        description = efg_map.get(efg_code, "Description not found")  # Utiliser la description si trouvée
+        efg_code = '.'.join(fichier.split('.')[:2]) 
 
         # Ouvrir le fichier raster
         with rasterio.open(raster_file) as src:
@@ -132,11 +126,11 @@ def ecosystemes(coordinates, dossier_raster, species_name, dataset_dir, src_epsg
             for coords in coordinates:
                 # Transformer les coordonnées (si nécessaire) en EPSG:4326 (latitude, longitude)
                 if src_epsg != 'epsg:4326':
-                    lon, lat = transformer.transform(coords[0], coords[1])  # Transformation vers EPSG:4326
+                    lon, lat = transformer.transform(coords[0], coords[1])
                 else:
-                    lat, lon = coords  # Si déjà en EPSG:4326, on les utilise telles quelles
+                    lat, lon = coords 
 
-                point = Point(lon, lat)  # Crée le point avec les coordonnées en EPSG:4326
+                point = Point(lon, lat) 
 
                 # Vérifier si le point est dans l'étendue du raster
                 if not src.bounds[0] <= point.x <= src.bounds[2] or not src.bounds[1] <= point.y <= src.bounds[3]:
@@ -146,12 +140,11 @@ def ecosystemes(coordinates, dossier_raster, species_name, dataset_dir, src_epsg
                 row, col = src.index(point.x, point.y)
 
                 # Vérifier la valeur du pixel dans le raster
-                value = src.read(1)[row, col]  # Lire la valeur du pixel à la position (row, col)
+                value = src.read(1)[row, col]
                 
                 # Si la valeur est 1 (Major occurrence) ou 2 (Minor occurrence), on les ajoute à la liste
                 if value == 1 or value == 2:
                     occurrence_type = "Major occurrence" if value == 1 else "Minor occurrence"
-                    # Ajouter seulement le groupe fonctionnel et le type d'occurrence à la liste
                     results[coords]["inside_rasters"].append(f"{description}, {occurrence_type}")
 
     # Enregistrer les résultats dans un fichier texte
@@ -162,5 +155,4 @@ def ecosystemes(coordinates, dossier_raster, species_name, dataset_dir, src_epsg
             if data["inside_rasters"]:
                 # Concaténer les informations de tous les rasters pour cette coordonnée
                 line = f"Coordinates {coords}: " + ", ".join(data["inside_rasters"])
-                # Écrire la ligne dans le fichier texte
                 file.write(line + "\n")
