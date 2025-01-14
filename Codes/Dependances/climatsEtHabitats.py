@@ -23,6 +23,11 @@ def climats(coordinates, shapefile, species_name, dataset_dir):
             subclimate = row['SUB-CLIMAT']
             subsubclimate = row['SUB-SUB-CL']
             file.write(f"{climate}, {subclimate}, {subsubclimate}\n")
+    
+    coordinates_file = os.path.join(species_dir, 'coordinates.txt')
+    with open(coordinates_file, 'w') as file:
+        for lat, lon in coordinates:
+            file.write(f"Coordinates: {lat}, {lon}\n")
 
 
 def ecoregions(coordinates, shapefile, species_name, dataset_dir):
@@ -40,7 +45,6 @@ def ecoregions(coordinates, shapefile, species_name, dataset_dir):
             # Suppose que 'attribut' est une colonne de la table attributaire du shapefile
             ecoregion = row['ECO_NAME']
             file.write(f"{ecoregion}\n")
-
 
 def avonet_habitats(avonet_file, sheet_name, species_name, dataset_dir):
     try:
