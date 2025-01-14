@@ -20,8 +20,8 @@ avonet = "../Donnees/avonet/AVONET2_eBird.xlsx"
 sheet_name = "AVONET2_eBird"
 
 # Nombre d'espèces et d'images par espèce
-num_species = 1
-num_images_per_species = 2
+num_species = 50
+num_images_per_species = 5
 
 # Fonction pour récupérer les espèces d'oiseaux
 def get_bird_species():
