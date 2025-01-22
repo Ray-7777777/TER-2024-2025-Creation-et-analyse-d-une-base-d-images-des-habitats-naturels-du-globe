@@ -4,24 +4,25 @@ import geopandas as gpd
 import climatsEtHabitats
 
 # Dossier parent pour toutes les espèces d'oiseaux
-dataset_dir = '..\\Donnees\\birds_dataset'
+dataset_dir = '/Donnees/birds_dataset'
 os.makedirs(dataset_dir, exist_ok=True)
 
 # Shapefile pour les climats
-shapefile_climats = gpd.read_file("../Donnees/climates/climates.shp")
+shapefile_climats = gpd.read_file("/Donnees/climates/climates.shp")
 
 # Shapefile pour les ecoregions
-shapefile_ecoregions = gpd.read_file("../Donnees/Ecoregions/wwf_terr_ecos.shp")
+shapefile_ecoregions = gpd.read_file("/Donnees/Ecoregions/wwf_terr_ecos.shp")
 
-raster_ecosystemes = "../Donnees/Ecosystemes/raster"
+raster_ecosystemes = "/Donnees/Ecosystemes/raster"
 
 # Csv avonet pour les habitats
-avonet = "../Donnees/avonet/AVONET2_eBird.xlsx"
+avonet = "/Donnees/avonet/AVONET2_eBird.xlsx"
 sheet_name = "AVONET2_eBird"
 
 # Nombre d'espèces et d'images par espèce
 num_species = 50
 num_images_per_species = 5
+
 
 # Fonction pour récupérer les espèces d'oiseaux
 def get_bird_species():

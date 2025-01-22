@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Dossier de sortie pour les images recadrées
-output_dir="../Donnees/oiseaux_extraits"
+output_dir="/Donnees/oiseaux_extraits"
 
 # Créer le dossier de sortie s'il n'existe pas déjà
 mkdir -p "$output_dir"
@@ -13,9 +13,9 @@ for dir in runs/detect/*; do
     # Lire chaque fichier de labels dans le dossier correspondant
     for label_file in "$label_dir"/*.txt; do
         # Tenter de trouver l'image avec .jpg puis .jpeg
-        image_file="../Donnees/birds_dataset/${dir##*/}/$(basename "$label_file" .txt).jpg"
+        image_file="/Donnees/birds_dataset/${dir##*/}/$(basename "$label_file" .txt).jpg"
         if [[ ! -f "$image_file" ]]; then
-            image_file="../Donnees/birds_dataset/${dir##*/}/$(basename "$label_file" .txt).jpeg"
+            image_file="/Donnees/birds_dataset/${dir##*/}/$(basename "$label_file" .txt).jpeg"
         fi
 
         # Lire chaque ligne du fichier de labels
