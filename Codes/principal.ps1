@@ -1,3 +1,7 @@
+Remove-Item -Path "..\Donnees\birds_dataset\*" -Recurse -Force
+Remove-Item -Path "..\Donnees\oiseaux_extraits\*" -Recurse -Force
+Remove-Item -Path "runs\detect\*" -Recurse -Force
+
 try {
     # Exécuter le script Python
     python3 Dependances/Extraction_photo_oiseaux_originalformat.py

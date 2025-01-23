@@ -1,0 +1,12 @@
+services:
+  app:
+    build:
+      context: .  # Le contexte de build du Dockerfile
+    volumes:
+      - ./Donnees/birds_dataset:/Donnees/birds_dataset
+      - ./Donnees/oiseaux_extraits:/Donnees/oiseaux_extraits
+      - ./Codes/runs/detect:/Codes/runs/detect
+    command: pwsh ./principal.ps1
+    stdin_open: true
+    tty: true
+    container_name: ter
