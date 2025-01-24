@@ -145,7 +145,7 @@ def extract_background(image_path, txt_file_path, output_dir, species, min_regio
     print(f"Extraction terminée. {len(regions_extracted[:3])} régions de fond sauvegardées.")
 
 # Exemple d'exécution
-parent_folder = r"../Donnees/birds_dataset"  # Dossier des images
+parent_folder = r"../Donnees/birds_dataset2"  # Dossier des images
 output_folder = r"../Donnees/birds_dataset/Background_extracted"  # Dossier de sortie pour les backgrounds
 
 os.makedirs(output_folder, exist_ok=True)
