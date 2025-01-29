@@ -1,0 +1,3 @@
+docker build -t mon-image -f test.dockerfile .
+
+docker run --rm -it -v ${PWD}/Donnees/birds_dataset:/Donnees/birds_dataset -v ${PWD}/Donnees/oiseaux_extraits:/Donnees/oiseaux_extraits -v ${PWD}/Codes/runs/detect:/Codes/runs/detect mon-image

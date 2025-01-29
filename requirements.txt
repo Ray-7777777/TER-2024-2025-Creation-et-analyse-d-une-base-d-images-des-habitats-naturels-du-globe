@@ -1,0 +1,9 @@
+geopandas
+pandas
+shapely
+rasterio
+pyproj
+requests
+torch
+Pillow
+openpyxl
