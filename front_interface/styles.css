@@ -1,0 +1,173 @@
+/* Global styles */
+body {
+    border: 2px solid orange;
+    font-family: Arial, sans-serif;
+    background-image: url('canard.jpg');
+    margin: 0;
+    padding: 0;
+    background-color: #D7DCE3;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+    height: 100vh;
+    box-sizing: border-box;
+}
+
+/* Bandeau dynamique */
+.navbar {
+    display: flex;
+    justify-content: center;
+    background-color: #38628f;
+    padding: 15px;
+    width: 100%;
+    box-sizing: border-box;
+    position: fixed; /* Keep the navbar fixed at the top */
+    top: 0;
+    z-index: 999; /* Ensure it stays above the other content */
+}
+
+.navbar-item {
+    color: white;
+    font-size: 16px;
+    padding: 10px 20px;
+    cursor: pointer;
+    transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+.navbar-item:hover {
+    background-color: #0056b3;
+    color: #f0f0f0;
+}
+
+/* Main container */
+.main-container {
+    text-align: center;
+    background-color: #EFF0F3;
+    padding: 40px;
+    border-radius: 8px;
+    box-shadow: 0px 0px 10px 0px rgba(0,0,0,1);
+    width: 80%;
+    max-width: 800px;
+    margin-top: 150px;
+}
+
+/* Header styles */
+.header-container {
+    margin-bottom: 20px;
+}
+
+header h1 {
+    font-size: 36px;
+    color: #333;
+}
+
+header p {
+    font-size: 16px;
+    color: #666;
+}
+
+/* Upload section */
+.upload-container {
+    margin-top: 30px;
+}
+
+.upload-button-container {
+    margin-bottom: 20px;
+}
+
+.upload-btn {
+    padding: 10px 20px;
+    background-color: #38628f;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 16px;
+}
+
+.upload-btn:hover {
+    background-color: #38628f;
+}
+
+.drop-zone-container {
+    margin-top: 15px;
+}
+
+.drop-zone {
+    margin-top: 15px;
+    padding: 20px;
+    border: 2px dashed #38628f;
+    border-radius: 10px;
+    color: #007bff;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+/* Image preview */
+.image-preview-container {
+    margin-top: 40px;
+}
+
+#image-preview img {
+    max-width: 100%;
+    margin: 10px 0;
+    max-height: 200px;
+    object-fit: cover;
+    position: relative;
+    display: inline-block;
+}
+
+/* Delete button */
+.delete-btn {
+    background-color: rgb(186, 75, 75);
+    color: white;
+    border: none;
+    padding: 5px 10px;
+    border-radius: 5px;
+    cursor: pointer;
+    margin-top: 10px;
+}
+
+.delete-btn:hover {
+    background-color: darkred;
+}
+
+/* Content container */
+.content-container {
+    width: 80%;
+    max-width: 800px;
+    margin-top: 20px;
+    position: relative;
+    height: 400px;
+    overflow: hidden;
+    display: block; /* Ensure it's always displayed */
+    padding: 10px;
+    box-sizing: border-box;
+}
+
+/* Content style */
+.content {
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.5s ease-in-out, visibility 0s 0.5s;
+    padding: 20px;
+    background-color: #e0e0e0;
+    border-radius: 8px;
+    display: none; /* Ensures content is hidden initially */
+}
+
+/* Specific style for background content */
+#background {
+    background-color: #b0bec5; /* Grise background */
+    height: 100%;  /* Ensure it fills the parent container */
+}
+
+/* Animation for visible content */
+.show-content {
+    opacity: 1;
+    visibility: visible;
+    display: block; /* Show content when class is added */
+    transition: opacity 0.5s ease-in-out, visibility 0s 0s;
+}
+
