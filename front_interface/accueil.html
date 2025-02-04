@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Redimensionner Image</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- Bandeau dynamique -->
+    <nav class="navbar" ><!--style="border: 2px solid red;"-->
+        <div class="navbar-item" onclick="showContent('background')">Background</div>
+        <div class="navbar-item" onclick="showContent('metrics')">Métriques</div>
+        <div class="navbar-item" onclick="showContent('label')">Label & Crop</div>
+        <div class="navbar-item" onclick="showContent('sharpness')">Netteté</div>
+        <div class="navbar-item" onclick="showContent('geography')">Géographie</div>
+    </nav>
+
+    <div class="main-container" ><!--style="border: 2px solid red;"-->
+        <div class="header-container" ><!--style="border: 2px solid green;"-->
+            <h1>Traitement IMAGE</h1>
+            <p>Veuillez mettre votre image d'oiseau ici.</p>
+        </div>
+
+        <div class="upload-container" ><!--style="border: 2px solid red;"-->
+            <div class="upload-button-container" ><!--style="border: 2px solid yellowgreen;"-->
+                <button id="select-images-btn" class="upload-btn">Sélectionner des images</button>
+            </div>
+            <div class="drop-zone-container" ><!--style="border: 2px solid yellowgreen;"-->
+                <div class="drop-zone" ><!--style="border: 2px solid black;"-->
+                    <p>ou déposez des images ici</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="image-preview-container" id="image-preview-container" style="display: none; border: 2px solid red;">
+            <h2>Prévisualisation des images</h2>
+            <div id="image-preview"></div>
+        </div>
+    </div>
+
+    <div class="content-container"><!--style="border: 2px solid red;"-->
+        <div id="background" class="content" style="display: none;">
+            <h2>Page Background</h2>
+            <p>Voici la page pour l'onglet Background. Elle est grise et a une belle transition !</p>
+        </div>
+        <div id="metrics" class="content" style="display: none;">
+            <h2>Page Métriques</h2>
+            <p>Voici la page pour l'onglet Métriques.</p>
+        </div>
+        <div id="label" class="content" style="display: none;">
+            <h2>Page Label & Crop</h2>
+            <p>Voici la page pour l'onglet Label & Crop.</p>
+        </div>
+        <div id="sharpness" class="content" style="display: none;">
+            <h2>Page Netteté</h2>
+            <p>Voici la page pour l'onglet Netteté.</p>
+        </div>
+        <div id="geography" class="content" style="display: none;">
+            <h2>Page Géographie</h2>
+            <p>Voici la page pour l'onglet Géographie.</p>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
