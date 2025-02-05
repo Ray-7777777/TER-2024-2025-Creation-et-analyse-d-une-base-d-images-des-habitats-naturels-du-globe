@@ -1,0 +1,82 @@
+body {
+    margin: 0;
+    padding: 0;
+    font-family: Arial, sans-serif;
+
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+    height: 100vh;
+    box-sizing: border-box;
+
+    background-color: #D7DCE3;
+    /* Si vous avez canard.jpg dans /static/ : background-image: url("canard.jpg"); */
+}
+
+/* Barre de navigation (facultative) */
+.navbar {
+    position: fixed;
+    top: 0;
+    width: 100%;
+    background-color: #38628f;
+    display: flex;
+    justify-content: center;
+    padding: 15px;
+    box-sizing: border-box;
+    z-index: 999;
+}
+.navbar-item {
+    color: white;
+    font-size: 16px;
+    padding: 10px 20px;
+    cursor: pointer;
+}
+
+/* Container */
+.main-container {
+    text-align: center;
+    background-color: #EFF0F3;
+    padding: 40px;
+    border-radius: 8px;
+    box-shadow: 0 0 10px rgba(0,0,0,1);
+    width: 80%;
+    max-width: 800px;
+    margin-top: 150px;
+    box-sizing: border-box;
+}
+
+/* Upload */
+.upload-btn {
+    padding: 10px 20px;
+    background-color: #38628f;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+}
+
+/* Preview */
+.image-preview-container {
+    margin-top: 30px;
+}
+
+/* .content / .show-content pour animer l'apparition */
+.content {
+    display: none;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.5s ease-in-out, visibility 0s 0.5s;
+}
+
+.show-content {
+    display: block;
+    opacity: 1;
+    visibility: visible;
+    transition: opacity 0.5s ease-in-out, visibility 0s 0s;
+}
+
+/* Ajustements divers */
+.content-container {
+    margin-top: 20px;
+}
