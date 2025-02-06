@@ -146,6 +146,7 @@ def download_images_for_species(taxon_id, species_name):
         climatsEtHabitats.climats(coordinates, shapefile_climats, species_name, dataset_dir)
         climatsEtHabitats.ecoregions(coordinates, shapefile_ecoregions, species_name, dataset_dir)
         climatsEtHabitats.ecosystemes(coordinates, raster_ecosystemes, species_name, dataset_dir)
+        climatsEtHabitats.carte(dataset_dir)
 
     climatsEtHabitats.avonet_habitats(avonet, sheet_name, species_name, dataset_dir)
     
