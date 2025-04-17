@@ -120,7 +120,7 @@ def classify_images(parent_folder, sharp_folder, blurry_folder, threshold_sobel=
                         cv2.imwrite(annotated_image_path, image)
 
 # Exécution de la classification d'images
-parent_folder = r"..\..\Copie_TER\Donnees\birds_dataset2"  # Dossier contenant les images
+parent_folder = r"chemin vers le dossier parent contenant les images"  # Dossier contenant les images
 sharp_folder = r"..\Donnees\sharp_images_sobel_fft"  # Dossier pour les images nettes
 blurry_folder = r"..\Donnees\blurry_images_sobel_fft"  # Dossier pour les images floues
 
