@@ -11,7 +11,7 @@ def extract_background(image_path, txt_file_path, output_dir, species,
 
     Args:
         image_path (str): Chemin vers l'image.
-        txt_file_path (str): Chemin vers le fichier TXT contenant les bounding boxes YOLO (format : class, x_center, y_center, width, height).
+        txt_file_path (str): Chemin vers le fichier TXT contenant les bounding boxes (format : class, confidence, x1, y1, x2, y2 en valeurs absolues).
         output_dir (str): Dossier racine de sortie pour les backgrounds.
         species (str): Nom de l'espèce (sera utilisé pour créer un sous-dossier).
         min_region_size (float): Fraction minimale de la surface totale de l'image pour accepter une région.
@@ -44,22 +44,20 @@ def extract_background(image_path, txt_file_path, output_dir, species,
     with open(txt_file_path, 'r') as file:
         for line in file:
             try:
-                class_id, x_center, y_center, width, height = map(float, line.strip().split())
+                # Lire 6 valeurs : class, confidence, x1, y1, x2, y2
+                class_id, conf, x1, y1, x2, y2 = map(float, line.strip().split())
             except Exception as e:
                 print("Erreur lors de la lecture de la ligne:", line)
                 continue
-            x_center = int(x_center * image_width)
-            y_center = int(y_center * image_height)
-            width = int(width * image_width)
-            height = int(height * image_height)
-            margin_w = int(width * 0.15)
-            margin_h = int(height * 0.15)
-            width += 2 * margin_w
-            height += 2 * margin_h
-            x1 = max(0, x_center - width // 2)
-            y1 = max(0, y_center - height // 2)
-            x2 = min(image_width - 1, x_center + width // 2)
-            y2 = min(image_height - 1, y_center + height // 2)
+            # Conversion en int (les coordonnées sont déjà en pixels)
+            x1, y1, x2, y2 = map(int, [x1, y1, x2, y2])
+            # Ajouter une marge de 15% autour de la bounding box
+            margin_w = int((x2 - x1) * 0.15)
+            margin_h = int((y2 - y1) * 0.15)
+            x1 = max(0, x1 - margin_w)
+            y1 = max(0, y1 - margin_h)
+            x2 = min(image_width - 1, x2 + margin_w)
+            y2 = min(image_height - 1, y2 + margin_h)
             print(f"Bounding Box: x1={x1}, y1={y1}, x2={x2}, y2={y2}")
             permanent_mask[y1:y2+1, x1:x2+1] = 255
 
