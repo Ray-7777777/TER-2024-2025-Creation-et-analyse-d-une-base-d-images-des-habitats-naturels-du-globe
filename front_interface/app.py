@@ -1,4 +1,8 @@
-import os
+import sys, os
+
+yolo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), 'yolov5'))
+sys.path.insert(0, yolo_root)
+
 import cv2
 import torch
 import streamlit as st
@@ -8,9 +12,14 @@ from yolov5.utils.general import non_max_suppression
 import pandas as pd
 import random
 import numpy as np
+import subprocess
 
 # Import de la fonction d'extraction du background
 from extraction_bckgd import extract_background
+
+from comparaison_features import run_pipeline
+
+SCRIPT_PATH = os.path.join(os.path.dirname(__file__), 'extraire_oiseaux.sh')
 
 ############################
 # Fonctions de détection
@@ -121,6 +130,33 @@ def add_text_with_black_background(image, var_sobel, fft_metric, position=(10,30
     cv2.putText(image, text, (position[0], position[1]), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255,255,255), thickness)
     return image
 
+def crop_birds_from_labels(label_dir, image_dir, output_dir):
+    os.makedirs(output_dir, exist_ok=True)
+    for txt_path in glob.glob(os.path.join(label_dir, "*.txt")):
+        base = os.path.splitext(os.path.basename(txt_path))[0]
+        for ext in (".jpg", ".jpeg", ".png"):
+            img_path = os.path.join(image_dir, base + ext)
+            if os.path.exists(img_path):
+                break
+        else:
+            st.warning(f"Aucune image trouvée pour {base}")
+            continue
+        img = cv2.imread(img_path)
+        h, w = img.shape[:2]
+        with open(txt_path) as f:
+            for i, line in enumerate(f):
+                cls, xc, yc, bw, bh = map(float, line.split())
+                x_min = int((xc - bw/2) * w)
+                y_min = int((yc - bh/2) * h)
+                x_max = x_min + int(bw * w)
+                y_max = y_min + int(bh * h)
+                x_min, y_min = max(0, x_min), max(0, y_min)
+                x_max, y_max = min(w, x_max), min(h, y_max)
+                crop = img[y_min:y_max, x_min:x_max]
+                out_path = os.path.join(output_dir, f"{base}_{i}.jpg")
+                cv2.imwrite(out_path, crop)
+    st.success(f"✅ Recadrage terminé ! Fichiers dans {output_dir}")
+
 ############################
 # Configuration des dossiers et chargement du modèle
 ############################
@@ -129,6 +165,7 @@ UPLOAD_FOLDER = 'uploads'
 DETECTED_FOLDER = 'static/results'
 NOT_DETECTED_FOLDER = 'static/no_results'
 BACKGROUND_FOLDER = os.path.join('static', 'background')
+CROP_OUTPUT_DIR = os.path.join('static', 'oiseaux_extraits')
 sharp_folder = os.path.join('static', 'classified', 'sharp')
 blurry_folder = os.path.join('static', 'classified', 'blurry')
 
@@ -145,59 +182,101 @@ model = DetectMultiBackend('./best.pt', device=torch.device('cpu'))
 if "images_info" not in st.session_state:
     st.session_state["images_info"] = []
 
-tab_detection, tab_background, tab_classification = st.tabs(["Détection", "Background", "Classification"])
+tab_detection, tab_background, tab_classification, tab_similarites = st.tabs(["Détection", "Background", "Classification", "Similarités"])
 
 # ---------- Onglet Détection ----------
 with tab_detection:
     st.header("Détection d'oiseaux")
-    uploaded_files = st.file_uploader("Téléverser des images", type=["png", "jpg", "jpeg"], accept_multiple_files=True)
-    
+    uploaded_files = st.file_uploader(
+        "Téléverser des images", type=["png", "jpg", "jpeg"], accept_multiple_files=True
+    )
+
     if uploaded_files:
-        st.session_state["images_info"] = []  # Réinitialiser à chaque upload
+        st.session_state["images_info"] = []  # Réinitialisation
+        # Traitement de chaque fichier uploadé
         for file in uploaded_files:
             filename = secure_filename(file.name)
-            image_path = os.path.join(UPLOAD_FOLDER, filename)
-            with open(image_path, 'wb') as f:
+            original_path = os.path.join(UPLOAD_FOLDER, filename)
+            with open(original_path, 'wb') as f:
                 f.write(file.getbuffer())
-            
-            found_box, annotated_img, metrics = detect_bird(image_path)
+
+            # Détection YOLO
+            found_box, annotated_img, metrics = detect_bird(original_path)
             if annotated_img is None:
-                st.error(f"Erreur pour l'image {filename}")
+                st.error(f"Erreur de détection pour {filename}")
                 continue
-            
-            if found_box:
-                save_path = os.path.join(DETECTED_FOLDER, filename)
-            else:
-                save_path = os.path.join(NOT_DETECTED_FOLDER, filename)
-            cv2.imwrite(save_path, annotated_img)
-            
-            bbox_txt = None
-            if metrics:
-                bbox_txt = save_bbox_txt(image_path, metrics)
-            
+
+            # Sauvegarde de l'image annotée
+            save_dir = DETECTED_FOLDER if found_box else NOT_DETECTED_FOLDER
+            annotated_path = os.path.join(save_dir, filename)
+            cv2.imwrite(annotated_path, annotated_img)
+
+            # Sauvegarde du fichier TXT de bounding box
+            bbox_txt = save_bbox_txt(original_path, metrics) if metrics else None
+
+            # Stocke les infos
             st.session_state["images_info"].append({
                 "filename": filename,
-                "original_path": image_path,
-                "annotated_path": save_path,
-                "metrics": metrics,
+                "original_path": original_path,
+                "annotated_path": annotated_path,
                 "bbox_txt": bbox_txt,
-                "found_box": found_box
+                "metrics": metrics
             })
-        
+
+        # Recadrage direct des oiseaux à partir des fichiers TXT
+        os.makedirs(CROP_OUTPUT_DIR, exist_ok=True)
         for info in st.session_state["images_info"]:
-            st.subheader(f"Résultats pour : {info['filename']}")
-            st.image(info["annotated_path"], caption=info['filename'], use_container_width=True)
-            if info["metrics"]:
-                st.write("**Métriques :**")
-                df = pd.DataFrame(info["metrics"])
-                st.dataframe(df)
-                if info["bbox_txt"] and os.path.exists(info["bbox_txt"]):
-                    with open(info["bbox_txt"], "r") as txt_file:
-                        st.code(txt_file.read())
-                    with open(info["bbox_txt"], "rb") as file:
-                        st.download_button("Télécharger les coordonnées", data=file, file_name=os.path.basename(info["bbox_txt"]))
-            else:
-                st.write("Aucune détection d'oiseau.")
+            txt_path = info.get("bbox_txt")
+            if not txt_path or not os.path.exists(txt_path):
+                continue
+            img = cv2.imread(info["original_path"])
+            h, w = img.shape[:2]
+            with open(txt_path) as f:
+                for i, line in enumerate(f):
+                    parts = line.strip().split()
+                    # Format attendu: class confidence x1 y1 x2 y2
+                    if len(parts) != 6:
+                        continue
+                    _, _, x1, y1, x2, y2 = map(float, parts)
+                    x1, y1, x2, y2 = map(int, (x1, y1, x2, y2))
+                    x1, y1 = max(0, x1), max(0, y1)
+                    x2, y2 = min(w, x2), min(h, y2)
+                    crop = img[y1:y2, x1:x2]
+                    out_name = f"{info['filename']}_{i}.jpg"
+                    out_path = os.path.join(CROP_OUTPUT_DIR, out_name)
+                    cv2.imwrite(out_path, crop)
+        st.success(f"✅ Recadrage terminé ! Fichiers dans {CROP_OUTPUT_DIR}")
+
+        # Affichage des images recadrées
+        recrops = []
+        if os.path.exists(CROP_OUTPUT_DIR):
+            recrops = [os.path.join(CROP_OUTPUT_DIR, f)
+                       for f in os.listdir(CROP_OUTPUT_DIR)
+                       if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
+        if recrops:
+            st.subheader("Images recadrées")
+            cols = st.columns(4)
+            for idx, img_path in enumerate(recrops):
+                with cols[idx % 4]:
+                    st.image(img_path, use_container_width=True)
+                    # Bouton de téléchargement du crop avec clé unique
+                    with open(img_path, 'rb') as f:
+                        st.download_button(
+                            label="Télécharger",
+                            data=f,
+                            file_name=os.path.basename(img_path),
+                            mime="image/jpeg",
+                            key=f"download_crop_{os.path.basename(img_path)}"
+                        )
+        else:
+            st.info("Aucune image recadrée trouvée.")
+
+        # Affichage des résultats de détection
+        st.subheader("Images détectées")
+        for info in st.session_state["images_info"]:
+            st.image(info["annotated_path"], caption=info["filename"], use_container_width=True)
+    else:
+        st.info("Aucune image téléversée.")
 
 # ---------- Onglet Background ----------
 with tab_background:
@@ -266,6 +345,59 @@ with tab_classification:
             annotated_rgb = cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB)
             st.image(annotated_rgb, caption=f"{info['filename']} - {classification}", use_container_width=True)
 
+# ---------- Onglet Similarités ----------
+with tab_similarites:
+    st.header("Calcul des similarités")
 
+    if st.button("📊 Calculer les similarités"):
+        with st.spinner("Extraction des features et calcul complet…"):
+            # 1) dossier des images oiseaux et backgrounds
+            birds_folder = os.path.join("static", "oiseaux_extraits")
+            bg_folder    = os.path.join("static", "background", "unknown")
 
+            # 2) dossier de sortie pour les CSV
+            out_folder = os.path.join("static", "similarites")
+            os.makedirs(out_folder, exist_ok=True)
 
+            # 3) chemins EXACTS vers les CSV qui seront créés
+            csv_birds      = os.path.join(out_folder, "birds_conv2_features.csv")
+            csv_bg_conv2   = os.path.join(out_folder, "backgrounds_conv2_features.csv")
+            csv_bg_means   = os.path.join(out_folder, "backgrounds_ResNet_features_means.csv")
+            csv_distances  = os.path.join(out_folder, "birds_background_euclidean_distance_results.csv")
+            csv_pair_stats = os.path.join(out_folder, "euclidean_distance_by_species_pair.csv")
+            csv_conf_mat   = os.path.join(out_folder, "euclidean_mean_distance_confusion_matrix.csv")
+
+            # 4) Lancement du pipeline COMPLET (toutes les étapes)
+            run_pipeline(
+                birds_folder,
+                bg_folder,
+                csv_birds,
+                csv_bg_conv2,
+                csv_bg_means,
+                csv_distances,
+                csv_pair_stats,
+                csv_conf_mat
+            )
+
+        st.success("✅ Pipeline complet exécuté ! Les fichiers sont dans `static/similarites/`")
+
+        # 5) Téléchargement de tous les CSV générés
+        for path in [
+            csv_birds,
+            csv_bg_conv2,
+            csv_bg_means,
+            csv_distances,
+            csv_pair_stats,
+            csv_conf_mat
+        ]:
+            if os.path.exists(path):
+                with open(path, "rb") as f:
+                    st.download_button(
+                        label=f"Télécharger {os.path.basename(path)}",
+                        data=f,
+                        file_name=os.path.basename(path),
+                        mime="text/csv",
+                        key=f"dl_{os.path.basename(path)}"
+                    )
+            else:
+                st.error(f"Fichier introuvable : {os.path.basename(path)}")
