@@ -1,0 +1,109 @@
+body {
+    margin: 0px;
+    padding: 0px;
+    font-family: Arial, sans-serif;
+    display: flex;
+    justify-content: flex-start; /* Aligner au début du body */
+    align-items: center; 
+    flex-direction: column;
+    min-height: 100vh;
+    box-sizing: border-box;
+    border : 5px solid red;
+    background-color: #D7DCE3;
+    overflow: auto; /* Permettre le défilement sans sortir du cadre */
+    /* Si vous avez canard.jpg dans /static/ : background-image: url("canard.jpg"); */
+}
+
+/* Barre de navigation (facultative) */
+.navbar {
+    position: absolute;
+    margin-top: 0px;
+    width: 100%;
+    background-color: #38628f;
+    display: flex;
+    justify-content: center;
+    padding: 15px;
+    margin-bottom: 50px;
+    box-sizing: border-box;
+
+    border: 3px solid green;
+    z-index: 999;
+}
+.navbar-item {
+    color: white;
+    font-size: 16px;
+    padding: 10px 20px;
+    cursor: pointer;
+    border: 2px solid blue;
+}
+
+/* Container */
+.main-container {
+    border: 1px solid yellow;
+    text-align: center;
+    background-color: #EFF0F3;
+    padding: 40px;
+    border-radius: 8px;
+    box-shadow: 0 0 10px rgba(0,0,0,1);
+    width: 80%;
+    max-width: 800px;
+    margin-top: 100px; /* Distance de 50px depuis le bandeau */
+    margin-bottom: 50px; /* Assurer qu'il reste un petit espace en bas */
+    box-sizing: border-box;
+    flex-grow: 1; /* Permet au container de grandir en fonction du contenu */
+}
+
+/* Upload */
+.upload-btn {
+    border: 10px solid black;
+    padding: 10px 20px;
+    background-color: #38628f;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+}
+
+.upload-btn:hover {
+    background-color: #3b78b0;
+}
+
+/* Lorsque le formulaire ou la détection s'agrandit, garder le main-container à 50px du bandeau */
+#image-preview-container, #detection-results {
+    margin-top: 20px;  /* Ajustement de l'espacement */
+}
+
+/* Pour la prévisualisation des images */
+#image-preview img {
+    width: 100px;
+    margin: 10px;
+    display: inline-block;
+}
+
+/* Pour les résultats de détection */
+#results-list img {
+    margin-top: 20px;
+    margin-right: 10px;
+}
+
+
+/* .content / .show-content pour animer l'apparition */
+.content {
+    display: none;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.5s ease-in-out, visibility 0s 0.5s;
+}
+
+.show-content {
+    display: block;
+    opacity: 1;
+    visibility: visible;
+    transition: opacity 0.5s ease-in-out, visibility 0s 0s;
+}
+
+/* Ajustements divers */
+.content-container {
+    margin-top: 20px;
+    padding-bottom: 20px; /* Pour éviter que le contenu dépasse du bas */
+}

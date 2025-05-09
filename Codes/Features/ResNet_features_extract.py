@@ -93,9 +93,8 @@ def save_embeddings(folder, out_csv, pooling='avg'):
     print(f"Embeddings sauvegardés ({len(rows)}/{total}) dans '{out_csv}'.")
 
 # 6. Script principal
-
-image_folder = '../Donnees/oiseaux_extraits'
-output_csv   = '../Donnees/birds_conv2_features.csv'
+image_folder = '../../Donnees/oiseaux_extraits'
+output_csv   = '../../Donnees/birds_conv2_features.csv'
 
 print("=== Statistiques des tailles d'images ===")
 analyze_image_sizes(image_folder)

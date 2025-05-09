@@ -1,0 +1,9 @@
+Flask
+torch
+opencv-python
+numpy
+yolov5
+pandas
+requests
+Pillow
+opencv-python

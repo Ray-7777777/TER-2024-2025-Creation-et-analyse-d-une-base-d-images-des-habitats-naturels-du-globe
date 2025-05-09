@@ -1,0 +1,29 @@
+2025-02-21 09:52:03,975 - werkzeug - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5000
+2025-02-21 09:52:03,976 - werkzeug - INFO - [33mPress CTRL+C to quit[0m
+2025-02-21 09:52:03,979 - werkzeug - INFO -  * Restarting with stat
+2025-02-21 09:52:23,123 - werkzeug - WARNING -  * Debugger is active!
+2025-02-21 09:52:23,140 - werkzeug - INFO -  * Debugger PIN: 881-244-372
+2025-02-21 09:55:31,362 - werkzeug - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5000
+2025-02-21 09:55:31,362 - werkzeug - INFO - [33mPress CTRL+C to quit[0m
+2025-02-21 09:55:31,368 - werkzeug - INFO -  * Restarting with stat
+2025-02-21 09:55:54,096 - werkzeug - WARNING -  * Debugger is active!
+2025-02-21 09:55:54,210 - werkzeug - INFO -  * Debugger PIN: 881-244-372
+2025-02-21 10:20:48,434 - werkzeug - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5000
+2025-02-21 10:20:48,435 - werkzeug - INFO - [33mPress CTRL+C to quit[0m
+2025-02-21 10:20:48,439 - werkzeug - INFO -  * Restarting with stat
+2025-02-21 10:21:01,615 - werkzeug - WARNING -  * Debugger is active!
+2025-02-21 10:21:01,709 - werkzeug - INFO -  * Debugger PIN: 881-244-372
+2025-02-21 10:21:41,167 - werkzeug - INFO - 127.0.0.1 - - [21/Feb/2025 10:21:41] "GET / HTTP/1.1" 200 -
+2025-02-21 10:21:41,558 - werkzeug - INFO - 127.0.0.1 - - [21/Feb/2025 10:21:41] "GET /static/styles.css HTTP/1.1" 200 -
+2025-02-21 10:21:41,638 - werkzeug - INFO - 127.0.0.1 - - [21/Feb/2025 10:21:41] "GET /static/script.js HTTP/1.1" 200 -
+2025-02-21 10:21:41,665 - werkzeug - INFO - 127.0.0.1 - - [21/Feb/2025 10:21:41] "[33mGET /favicon.ico HTTP/1.1[0m" 404 -
+2025-02-21 10:22:37,794 - werkzeug - INFO - 127.0.0.1 - - [21/Feb/2025 10:22:37] "POST /upload HTTP/1.1" 200 -
+2025-02-21 10:22:37,836 - werkzeug - INFO - 127.0.0.1 - - [21/Feb/2025 10:22:37] "GET /static/results/Anas_platyrhynchos_6.jpeg HTTP/1.1" 200 -
+2025-02-21 11:00:33,489 - werkzeug - INFO - 127.0.0.1 - - [21/Feb/2025 11:00:33] "GET / HTTP/1.1" 200 -
+2025-02-21 11:00:33,559 - werkzeug - INFO - 127.0.0.1 - - [21/Feb/2025 11:00:33] "[36mGET /static/styles.css HTTP/1.1[0m" 304 -
+2025-02-21 11:00:33,563 - werkzeug - INFO - 127.0.0.1 - - [21/Feb/2025 11:00:33] "[36mGET /static/script.js HTTP/1.1[0m" 304 -
+2025-02-21 11:00:47,389 - werkzeug - INFO - 127.0.0.1 - - [21/Feb/2025 11:00:47] "POST /upload HTTP/1.1" 200 -
+2025-02-21 11:00:47,425 - werkzeug - INFO - 127.0.0.1 - - [21/Feb/2025 11:00:47] "GET /static/results/Anas_platyrhynchos_1.jpeg HTTP/1.1" 200 -

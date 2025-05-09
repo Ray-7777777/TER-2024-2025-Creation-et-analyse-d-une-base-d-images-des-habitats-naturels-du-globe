@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Détection d'Oiseaux (Multi-upload)</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+    
+    <div class="navbar">
+        <div class="navbar-item">Accueil</div>
+        <div class="navbar-item">Métriques</div>
+        <div class="navbar-item">Trace Humaine</div>
+        <div class="navbar-item">Background</div>
+        <div class="navbar-item">Géographie</div>
+    </div>
+
+    <div class="main-container">
+        <div class="header-container">
+            <h1>Détection d'Oiseaux (Multi)</h1>
+            <p>Veuillez sélectionner plusieurs images (si désiré).</p>
+        </div>
+
+        <!-- Formulaire -->
+        <form id="upload-form" enctype="multipart/form-data">
+            <!-- multiple permet de choisir plusieurs fichiers à la fois -->
+            <input type="file" id="image-input" name="images" accept="image/*" multiple required>
+            <button type="submit" class="upload-btn">Envoyer</button>
+        </form>
+
+        <!-- Prévisualisation -->
+        <div class="image-preview-container" id="image-preview-container" style="display: none;">
+            <h2>Prévisualisation</h2>
+            <div id="image-preview"></div>
+        </div>
+
+        <!-- Résultats de la Détection -->
+        <div class="content-container">
+            <div id="detection-results" class="content">
+                <h2>Résultats de la Détection</h2>
+                <div id="results-list"></div> <!-- Afficher les images détectées -->
+                <div id="metrics-list"></div> <!-- Afficher les métriques -->
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
