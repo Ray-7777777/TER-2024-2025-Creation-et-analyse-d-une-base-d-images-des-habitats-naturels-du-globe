@@ -543,9 +543,9 @@ with tab_cartes:
             m = folium.Map(location=[avg_lat, avg_lon], zoom_start=4)
 
             # Génération du fichier d'écosystèmes
-            species_dir = os.path.join(GEO_FOLDER, species)
+            species_dir = os.path.join(geo_folder, species)
             os.makedirs(species_dir, exist_ok=True)
-            ecosystemes(coords, ECOSYS_RASTER_DIR, species, GEO_FOLDER)
+            ecosystemes(coords, ECOSYS_RASTER_DIR, species, geo_folder)
             # tooltip = modalité
             for lat, lon in coords:
                 desc_map[(lat, lon)] = modality
