@@ -13,11 +13,18 @@ import pandas as pd
 import random
 import numpy as np
 import subprocess
+import folium
+import streamlit.components.v1 as components
+import geopandas as gpd
+from shapely.geometry import Point
+
 
 # Import de la fonction d'extraction du background
 from extraction_bckgd import extract_background
 
 from comparaison_features import run_pipeline
+
+from climatsEtHabitats import climats, ecoregions, avonet_habitats, ecosystemes, biomes
 
 SCRIPT_PATH = os.path.join(os.path.dirname(__file__), 'extraire_oiseaux.sh')
 
@@ -168,6 +175,7 @@ BACKGROUND_FOLDER = os.path.join('static', 'background')
 CROP_OUTPUT_DIR = os.path.join('static', 'oiseaux_extraits')
 sharp_folder = os.path.join('static', 'classified', 'sharp')
 blurry_folder = os.path.join('static', 'classified', 'blurry')
+geo_folder = os.path.join('static', 'geo')
 
 for folder in [UPLOAD_FOLDER, DETECTED_FOLDER, NOT_DETECTED_FOLDER, BACKGROUND_FOLDER, sharp_folder, blurry_folder]:
     os.makedirs(folder, exist_ok=True)
@@ -182,7 +190,7 @@ model = DetectMultiBackend('./best.pt', device=torch.device('cpu'))
 if "images_info" not in st.session_state:
     st.session_state["images_info"] = []
 
-tab_detection, tab_background, tab_classification, tab_similarites = st.tabs(["Détection", "Background", "Classification", "Similarités"])
+tab_detection, tab_background, tab_classification, tab_similarites, tab_cartes = st.tabs(["Détection", "Background", "Classification", "Similarités", "Cartes"])
 
 # ---------- Onglet Détection ----------
 with tab_detection:
@@ -401,3 +409,158 @@ with tab_similarites:
                     )
             else:
                 st.error(f"Fichier introuvable : {os.path.basename(path)}")
+
+        # 6) Affichage de la matrice de confusion
+        import pandas as pd
+        import matplotlib.pyplot as plt
+
+        if os.path.exists(csv_conf_mat):
+            # a) Chargement du CSV (première colonne en index)
+            df_conf = pd.read_csv(csv_conf_mat, index_col=0)
+
+            # b) Affichage interactif
+            st.markdown("### Matrice de confusion (distance Euclidienne moyenne)")
+            st.dataframe(df_conf)
+
+            # c) Heatmap Matplotlib
+            fig, ax = plt.subplots()
+            im = ax.imshow(df_conf.values, aspect='auto')
+            # étiquettes axes
+            ax.set_xticks(range(len(df_conf.columns)))
+            ax.set_xticklabels(df_conf.columns, rotation=90)
+            ax.set_yticks(range(len(df_conf.index)))
+            ax.set_yticklabels(df_conf.index)
+            ax.set_xlabel("Espèce background")
+            ax.set_ylabel("Espèce oiseau")
+            fig.colorbar(im, ax=ax, label="Distance moyenne")
+
+            st.pyplot(fig)
+        else:
+            st.error(f"Fichier non trouvé : {os.path.basename(csv_conf_mat)}")
+
+
+ECOREGIONS_SHP      = "../Donnees/Ecoregions/wwf_terr_ecos.shp"
+CLIMATES_SHP        = "../Donnees/climates/climates.shp"
+ECOSYS_RASTER_DIR   = "../Donnees/Ecosystemes/raster/"
+
+with tab_cartes:
+    st.header("Projeter vos coordonnées par modalité")
+
+    # 1) Upload du fichier de coordonnées
+    uploaded = st.file_uploader(
+        "Téléchargez votre fichier de coordonnées (colonnes : latitude,longitude)",
+        type=["csv", "txt"]
+    )
+
+    # 2) Choix de la modalité
+    modality = st.selectbox("Choisissez la modalité",
+        ["Climats", "Ecorégions", "Ecosystèmes"]
+    )
+
+    # 3) Si Climats, choix du niveau de détail
+    if modality == "Climats":
+        climat_level = st.selectbox("Niveau de détail",
+            ["Climat", "Sub-climat", "Sub-sub-climat"]
+        )
+
+    # 4) Affichage sur bouton
+    if uploaded and st.button("Afficher la carte"):
+        # Nom d'espèce (pour dossier, non dans tooltip)
+        species = os.path.splitext(uploaded.name)[0]
+
+        # Lecture des coordonnées
+        try:
+            df = pd.read_csv(uploaded)
+            coords = list(zip(df["latitude"], df["longitude"]))
+        except Exception as e:
+            st.error(f"Erreur lecture des coordonnées : {e}")
+            st.stop()
+
+        if not coords:
+            st.error("Aucune coordonnée valide.")
+            st.stop()
+
+        # --- Préparation de la carte et des légendes ---
+        desc_map = {}  # coord → label
+        if modality in ("Climats", "Ecorégions"):
+            # 1) Choix shapefile et champs à concaténer
+            if modality == "Climats":
+                shp_path = CLIMATES_SHP
+                if climat_level == "Climat":
+                    fields = ["CLIMATE"]
+                elif climat_level == "Sub-climat":
+                    fields = ["CLIMATE", "SUB-CLIMAT"]
+                else:
+                    fields = ["CLIMATE", "SUB-CLIMAT", "SUB-SUB-CL"]
+            else:
+                shp_path = ECOREGIONS_SHP
+                fields = ["ECO_NAME"]
+
+            # 2) Charger & reprojeter
+            gdf = gpd.read_file(shp_path).to_crs(epsg=4326)
+
+            # 3) Construire colonne composite
+            def make_label(row):
+                return " — ".join(str(row[f]) for f in fields if pd.notna(row[f]))
+            gdf["__combo__"] = gdf.apply(make_label, axis=1)
+
+            # 4) Générer couleur par combo
+            combos = gdf["__combo__"].unique()
+            color_map = {c: f"#{random.randint(0,0xFFFFFF):06x}" for c in combos}
+
+            # 5) Centre et carte
+            minx, miny, maxx, maxy = gdf.total_bounds
+            center = [(miny+maxy)/2, (minx+maxx)/2]
+            m = folium.Map(location=center, zoom_start=4)
+            m.fit_bounds([[miny, minx], [maxy, maxx]])
+
+            # 6) Polygones colorés
+            folium.GeoJson(
+                gdf.to_json(),
+                style_function=lambda feat: {
+                    "fillColor":   color_map.get(feat["properties"]["__combo__"], "#CCCCCC"),
+                    "color":       "#444444",
+                    "weight":      1,
+                    "fillOpacity": 0.5
+                }
+            ).add_to(m)
+
+            # 7) Intersection pour tooltips sur les points
+            pts = gpd.GeoDataFrame(
+                geometry=[Point(lon, lat) for lat, lon in coords],
+                crs="EPSG:4326"
+            )
+            joined = gpd.sjoin(pts, gdf, how="left", predicate="intersects")
+            for _, row in joined.iterrows():
+                lat, lon = row.geometry.y, row.geometry.x
+                label = row.get("__combo__", None)
+                desc_map[(lat, lon)] = label if pd.notna(label) else "Hors zone"
+
+        else:
+            # Écosystèmes : fond OSM centré sur la moyenne des points
+            avg_lat = sum(lat for lat, _ in coords)/len(coords)
+            avg_lon = sum(lon for _, lon in coords)/len(coords)
+            m = folium.Map(location=[avg_lat, avg_lon], zoom_start=4)
+
+            # Génération du fichier d'écosystèmes
+            species_dir = os.path.join(GEO_FOLDER, species)
+            os.makedirs(species_dir, exist_ok=True)
+            ecosystemes(coords, ECOSYS_RASTER_DIR, species, GEO_FOLDER)
+            # tooltip = modalité
+            for lat, lon in coords:
+                desc_map[(lat, lon)] = modality
+
+        # --- Ajout des points avec tooltip ---
+        for lat, lon in coords:
+            tooltip_txt = desc_map.get((lat, lon), "")
+            folium.CircleMarker(
+                location=[lat, lon],
+                radius=6,
+                color="red",
+                fill=True,
+                fill_opacity=0.8,
+                tooltip=tooltip_txt
+            ).add_to(m)
+
+        # --- Affichage dans Streamlit ---
+        components.html(m._repr_html_(), height=600, scrolling=True)
