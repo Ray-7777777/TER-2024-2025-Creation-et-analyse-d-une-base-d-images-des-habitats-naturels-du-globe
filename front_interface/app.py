@@ -1,271 +1,300 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 import os
 import cv2
 import torch
 import streamlit as st
 from werkzeug.utils import secure_filename
-from yolov5.models.common import DetectMultiBackend
-from yolov5.utils.general import non_max_suppression
+from ultralytics import YOLO
 import pandas as pd
-import random
 import numpy as np
-
-# Import de la fonction d'extraction du background
+from scipy.spatial.distance import cdist
 from extraction_bckgd import extract_background
 
 ############################
-# Fonctions de détection
+# Conversion du checkpoint (pour supporter best.pt V8 → legacy)
+############################
+if not os.path.exists('best_legacy.pt'):
+    # charge et exporte en format PyTorch binaire compatible
+    YOLO('best.pt').export(format='pt', legacy=True)
+
+############################
+# Chargement du modèle
+############################
+model = YOLO('best_legacy.pt')
+
+############################
+# Fonctions utilitaires
 ############################
 
 def allowed_file(filename):
-    """Vérifie si le fichier a une extension valide."""
+    """Vérifie l'extension du fichier."""
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in {'png', 'jpg', 'jpeg'}
 
-def detect_bird(image_path):
-    """Détecte un oiseau dans une image et renvoie l'image annotée et les métriques."""
+def detect_bird(image_path: str, conf: float = 0.5, iou: float = 0.45):
+    """
+    Détecte un oiseau dans l'image via Ultralytics.YOLO
+    Renvoie (found_box, img_annotée (BGR), metrics list).
+    """
     img_bgr = cv2.imread(image_path)
     if img_bgr is None:
         st.error(f"Erreur de lecture de l'image : {image_path}")
         return False, None, []
-    
-    h_orig, w_orig = img_bgr.shape[:2]
-    img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-    img_resized = cv2.resize(img_rgb, (640, 640))
-    
-    img_tensor = torch.from_numpy(img_resized).float() / 255.0
-    img_tensor = img_tensor.permute(2, 0, 1).unsqueeze(0)
-    
-    results = model(img_tensor)
-    preds = non_max_suppression(results, conf_thres=0.5, iou_thres=0.45)
-    detections = preds[0]
-    
+
+    results = model.predict(source=image_path, conf=conf, iou=iou, verbose=False)
+    r = results[0]  # batch size = 1
+    # boxes en format Nx6: x1, y1, x2, y2, confidence, class
+    boxes = r.boxes.cpu().numpy()
+
     metrics = []
-    scale_x = w_orig / 640.0
-    scale_y = h_orig / 640.0
-    found_box = False
-    
-    for *xyxy, conf, cls_idx in detections:
-        if conf >= 0.5:
-            found_box = True
-            x1, y1, x2, y2 = [coord.item() for coord in xyxy]
-            X1 = int(x1 * scale_x)
-            Y1 = int(y1 * scale_y)
-            X2 = int(x2 * scale_x)
-            Y2 = int(y2 * scale_y)
-            label = f"Oiseau ({conf:.2f})"
-            cv2.rectangle(img_bgr, (X1, Y1), (X2, Y2), (0, 255, 0), 2)
-            cv2.putText(img_bgr, label, (X1, Y1 - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-            metrics.append({
-                "class": int(cls_idx),
-                "confidence": conf.item(),
-                "bbox": [X1, Y1, X2, Y2],
-                "label": label
-            })
+    for x1, y1, x2, y2, score, cls in boxes:
+        X1, Y1, X2, Y2 = map(int, (x1, y1, x2, y2))
+        label = f"Oiseau ({score:.2f})"
+        cv2.rectangle(img_bgr, (X1, Y1), (X2, Y2), (0, 255, 0), 2)
+        cv2.putText(img_bgr, label, (X1, Y1 - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+        metrics.append({
+            "class": int(cls),
+            "confidence": float(score),
+            "bbox": [X1, Y1, X2, Y2],
+            "label": label
+        })
+
+    found_box = len(boxes) > 0
     return found_box, img_bgr, metrics
 
-def save_bbox_txt(image_path, metrics):
-    """Sauvegarde les coordonnées des bounding boxes dans un fichier TXT au format : class, confiance, x1, y1, x2, y2."""
-    base_name = os.path.splitext(os.path.basename(image_path))[0]
-    txt_file_path = os.path.join(UPLOAD_FOLDER, f"{base_name}.txt")
-    txt_data = ""
-    for m in metrics:
-        bbox_str = " ".join(str(x) for x in m["bbox"])
-        txt_data += f"{m['class']} {m['confidence']:.2f} {bbox_str}\n"
-    with open(txt_file_path, 'w') as txt_file:
-        txt_file.write(txt_data)
-    return txt_file_path
+def save_bbox_txt(image_path: str, metrics: list[dict]) -> str:
+    """
+    Sauvegarde les bbox dans un .txt (class confidence x1 y1 x2 y2).
+    Retourne le chemin du .txt généré.
+    """
+    base = os.path.splitext(os.path.basename(image_path))[0]
+    txt_path = os.path.join(UPLOAD_FOLDER, f"{base}.txt")
+    with open(txt_path, 'w') as f:
+        for m in metrics:
+            bbox = " ".join(map(str, m["bbox"]))
+            f.write(f"{m['class']} {m['confidence']:.2f} {bbox}\n")
+    return txt_path
 
-############################
-# Fonctions de classification (flou vs nette)
-############################
-
-def sobel_variance(image_gray):
-    """Calcule la variance du filtre de Sobel pour détecter la netteté de l'image."""
+def sobel_variance(image_gray: np.ndarray) -> float:
+    """Variance du filtre de Sobel (sharpness)."""
     sobel_x = cv2.Sobel(image_gray, cv2.CV_64F, 1, 0, ksize=3)
     sobel_y = cv2.Sobel(image_gray, cv2.CV_64F, 0, 1, ksize=3)
-    # Pour les bords diagonaux :
-    sobel_diag_45 = cv2.filter2D(image_gray, cv2.CV_64F, np.array([[1, 0, -1], [2, 0, -2], [1, 0, -1]]))
-    sobel_diag_135 = cv2.filter2D(image_gray, cv2.CV_64F, np.array([[-1, -2, -1], [0, 0, 0], [1, 2, 1]]))
-    gradient_magnitude_x = cv2.magnitude(sobel_x, sobel_y)
-    gradient_magnitude_diag = cv2.magnitude(sobel_diag_45, sobel_diag_135)
-    variance_x = gradient_magnitude_x.var()
-    variance_diag = gradient_magnitude_diag.var()
-    return (variance_x + variance_diag) / 2
+    gmag = cv2.magnitude(sobel_x, sobel_y)
+    return gmag.var()
 
-def calculate_fft(image_gray):
-    """Applique la transformée de Fourier pour mesurer le flou."""
-    fft_image = np.fft.fft2(image_gray)
-    fft_shifted = np.fft.fftshift(fft_image)
-    magnitude_spectrum = np.log(np.abs(fft_shifted) + 1)
-    return np.mean(magnitude_spectrum)
+def calculate_fft(image_gray: np.ndarray) -> float:
+    """Métrique FFT pour flou."""
+    fft = np.fft.fftshift(np.fft.fft2(image_gray))
+    mag = np.log(np.abs(fft) + 1)
+    return mag.mean()
 
-def is_blurry(image_path, threshold_sobel=100, threshold_fft=3):
-    """Détermine si une image est floue selon les seuils Sobel et FFT."""
-    image = cv2.imread(image_path)
-    if image is None:
-        st.error(f"Impossible de charger l'image {image_path}")
-        return False, 0, 0
-    image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    var_sobel = sobel_variance(image_gray)
-    fft_metric = calculate_fft(image_gray)
-    blurry = var_sobel < threshold_sobel and fft_metric < threshold_fft
-    return blurry, var_sobel, fft_metric
+def is_blurry(image_path: str,
+             threshold_sobel: float = 100,
+             threshold_fft: float = 3) -> tuple[bool, float, float]:
+    """Détermine si image est floue (Sobel + FFT)."""
+    img = cv2.imread(image_path)
+    if img is None:
+        st.error(f"Impossible de charger {image_path}")
+        return False, 0.0, 0.0
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    var_sobel = sobel_variance(gray)
+    fft_m = calculate_fft(gray)
+    return (var_sobel < threshold_sobel and fft_m < threshold_fft,
+            var_sobel, fft_m)
 
-def add_text_with_black_background(image, var_sobel, fft_metric, position=(10,30), font_scale=1, thickness=1):
-    """Ajoute le texte des métriques sur l'image."""
-    text = f'Sobel Variance: {var_sobel:.2f}, FFT: {fft_metric:.2f}'
-    thickness = int(thickness)
-    (text_width, text_height), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)
-    cv2.rectangle(image, (position[0], position[1] - text_height - 10),
-                  (position[0] + text_width + 5, position[1] + 10), (0, 0, 0), cv2.FILLED)
-    cv2.putText(image, text, (position[0], position[1]), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255,255,255), thickness)
+def add_text_with_black_background(image: np.ndarray,
+                                   var_sobel: float,
+                                   fft_metric: float,
+                                   position=(10, 30),
+                                   font_scale=1.0,
+                                   thickness=1) -> np.ndarray:
+    """Ajoute metrics en haut à gauche sur un fond noir."""
+    text = f"Sobel: {var_sobel:.1f}, FFT: {fft_metric:.2f}"
+    (w, h), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)
+    x, y = position
+    cv2.rectangle(image, (x, y - h - 5), (x + w + 5, y + 5), (0, 0, 0), cv2.FILLED)
+    cv2.putText(image, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX,
+                font_scale, (255, 255, 255), thickness)
     return image
 
-############################
-# Configuration des dossiers et chargement du modèle
-############################
+def compute_distribution(image_name: str,
+                         df: pd.DataFrame,
+                         n_bg: int = 9,
+                         n_null: int = 1000) -> tuple[float, np.ndarray]:
+    """
+    Pour une image, calcule :
+      - d_intra : moyenne euclidienne à n_bg embeddings de même espèce
+      - null_means : distribution nulle avec n_null tirages sur autres espèces
+    """
+    emb0 = df.loc[df.image_name == image_name, df.columns[1:]].values.astype(float)
+    if emb0.shape[0] != 1:
+        raise ValueError(f"Image {image_name} absente ou dupliquée")
+    emb0 = emb0[0:1, :]
 
-UPLOAD_FOLDER = 'uploads'
-DETECTED_FOLDER = 'static/results'
+    species = image_name.split('_')[0]
+    same = df[(df.image_name.str.startswith(f"{species}_")) & (df.image_name != image_name)]
+    if len(same) < n_bg:
+        raise ValueError(f"{len(same)} images trouvées pour {species}, besoin de {n_bg}")
+    emb_same = same.sample(n_bg, random_state=0).iloc[:,1:].values
+    d_intra = cdist(emb0, emb_same, 'euclidean').mean()
+
+    others = df[~df.image_name.str.startswith(f"{species}_")]
+    emb_others = others.iloc[:,1:].values
+    if len(emb_others) < n_bg:
+        raise ValueError(f"Pas assez d'images hors {species} pour n_bg={n_bg}")
+
+    null_means = np.empty(n_null, dtype=float)
+    for i in range(n_null):
+        idx = np.random.choice(len(emb_others), size=n_bg, replace=False)
+        null_means[i] = cdist(emb0, emb_others[idx], 'euclidean').mean()
+
+    return d_intra, null_means
+
+############################
+# Configuration des dossiers
+############################
+UPLOAD_FOLDER       = 'uploads'
+DETECTED_FOLDER     = 'static/results'
 NOT_DETECTED_FOLDER = 'static/no_results'
-BACKGROUND_FOLDER = os.path.join('static', 'background')
-sharp_folder = os.path.join('static', 'classified', 'sharp')
-blurry_folder = os.path.join('static', 'classified', 'blurry')
+BACKGROUND_FOLDER   = 'static/background'
+sharp_folder        = 'static/classified/sharp'
+blurry_folder       = 'static/classified/blurry'
 
-for folder in [UPLOAD_FOLDER, DETECTED_FOLDER, NOT_DETECTED_FOLDER, BACKGROUND_FOLDER, sharp_folder, blurry_folder]:
-    os.makedirs(folder, exist_ok=True)
-
-model = DetectMultiBackend('./best.pt', device=torch.device('cpu'))
+for d in (UPLOAD_FOLDER, DETECTED_FOLDER, NOT_DETECTED_FOLDER,
+          BACKGROUND_FOLDER, sharp_folder, blurry_folder):
+    os.makedirs(d, exist_ok=True)
 
 ############################
-# Interface Streamlit avec onglets
+# Streamlit UI
 ############################
-
-# Initialisation de la session pour stocker les infos
 if "images_info" not in st.session_state:
     st.session_state["images_info"] = []
 
-tab_detection, tab_background, tab_classification = st.tabs(["Détection", "Background", "Classification"])
+tab_detection, tab_background, tab_classification, tab_distribution = st.tabs(
+    ["Détection", "Background", "Classification", "Distribution"]
+)
 
-# ---------- Onglet Détection ----------
+# ---- Onglet Détection ----
 with tab_detection:
     st.header("Détection d'oiseaux")
-    uploaded_files = st.file_uploader("Téléverser des images", type=["png", "jpg", "jpeg"], accept_multiple_files=True)
-    
-    if uploaded_files:
-        st.session_state["images_info"] = []  # Réinitialiser à chaque upload
-        for file in uploaded_files:
-            filename = secure_filename(file.name)
-            image_path = os.path.join(UPLOAD_FOLDER, filename)
-            with open(image_path, 'wb') as f:
-                f.write(file.getbuffer())
-            
-            found_box, annotated_img, metrics = detect_bird(image_path)
-            if annotated_img is None:
-                st.error(f"Erreur pour l'image {filename}")
-                continue
-            
-            if found_box:
-                save_path = os.path.join(DETECTED_FOLDER, filename)
-            else:
-                save_path = os.path.join(NOT_DETECTED_FOLDER, filename)
-            cv2.imwrite(save_path, annotated_img)
-            
-            bbox_txt = None
-            if metrics:
-                bbox_txt = save_bbox_txt(image_path, metrics)
-            
+    uploaded = st.file_uploader("Uploader des images", type=["png","jpg","jpeg"],
+                                accept_multiple_files=True)
+    if uploaded:
+        st.session_state["images_info"].clear()
+        for file in uploaded:
+            fname = secure_filename(file.name)
+            path = os.path.join(UPLOAD_FOLDER, fname)
+            with open(path, 'wb') as f: f.write(file.getbuffer())
+
+            found, annotated, metrics = detect_bird(path)
+            if annotated is None: continue
+            dest = DETECTED_FOLDER if found else NOT_DETECTED_FOLDER
+            save_path = os.path.join(dest, fname)
+            cv2.imwrite(save_path, annotated)
+            bbox_txt = save_bbox_txt(path, metrics) if metrics else None
+
             st.session_state["images_info"].append({
-                "filename": filename,
-                "original_path": image_path,
+                "filename": fname,
+                "original_path": path,
                 "annotated_path": save_path,
                 "metrics": metrics,
                 "bbox_txt": bbox_txt,
-                "found_box": found_box
+                "found_box": found
             })
-        
-        for info in st.session_state["images_info"]:
-            st.subheader(f"Résultats pour : {info['filename']}")
-            st.image(info["annotated_path"], caption=info['filename'], use_container_width=True)
-            if info["metrics"]:
-                st.write("**Métriques :**")
-                df = pd.DataFrame(info["metrics"])
-                st.dataframe(df)
-                if info["bbox_txt"] and os.path.exists(info["bbox_txt"]):
-                    with open(info["bbox_txt"], "r") as txt_file:
-                        st.code(txt_file.read())
-                    with open(info["bbox_txt"], "rb") as file:
-                        st.download_button("Télécharger les coordonnées", data=file, file_name=os.path.basename(info["bbox_txt"]))
-            else:
-                st.write("Aucune détection d'oiseau.")
 
-# ---------- Onglet Background ----------
+        for info in st.session_state["images_info"]:
+            st.subheader(info["filename"])
+            st.image(info["annotated_path"], use_container_width=True)
+            if info["metrics"]:
+                dfm = pd.DataFrame(info["metrics"])
+                st.dataframe(dfm)
+                if info["bbox_txt"] and os.path.exists(info["bbox_txt"]):
+                    with open(info["bbox_txt"]) as f:
+                        st.code(f.read())
+                    with open(info["bbox_txt"], "rb") as fb:
+                        st.download_button("Télécharger coords", fb.read(),
+                                           file_name=os.path.basename(info["bbox_txt"]))
+
+# ---- Onglet Background ----
 with tab_background:
     st.header("Extraction du Background")
     if not st.session_state["images_info"]:
-        st.warning("Aucune image n'a été téléversée dans l'onglet Détection.")
+        st.warning("Aucune image uploadée")
     else:
-        filenames = [info["filename"] for info in st.session_state["images_info"]]
-        selected_images = st.multiselect("Sélectionnez les images pour extraire le background", filenames)
-        if st.button("Extraire le background"):
-            if not selected_images:
-                st.warning("Veuillez sélectionner au moins une image.")
-            else:
-                for info in st.session_state["images_info"]:
-                    if info["filename"] in selected_images:
-                        txt_file_path = info.get("bbox_txt")
-                        if not txt_file_path or not os.path.exists(txt_file_path):
-                            st.error(f"Le fichier TXT pour {info['filename']} est introuvable.")
-                            continue
-                        species = "Unknown"
-                        extracted_paths = extract_background(info["original_path"], txt_file_path, BACKGROUND_FOLDER, species)
-                        if extracted_paths:
-                            num_cols = 3
-                            cols = st.columns(num_cols)
-                            for i, path in enumerate(extracted_paths):
-                                with cols[i % num_cols]:
-                                    st.image(path, caption=f"Background extrait : {os.path.basename(path)}", use_container_width=True)
-                                    with open(path, "rb") as file:
-                                        st.download_button(
-                                            label=f"Télécharger {os.path.basename(path)}",
-                                            data=file,
-                                            file_name=os.path.basename(path),
-                                            mime="image/jpeg"
-                                        )
-                        else:
-                            st.error(f"Aucun background extrait pour {info['filename']}.")
+        names = [i["filename"] for i in st.session_state["images_info"]]
+        sel = st.multiselect("Choisir images", names)
+        if st.button("Extraire"):
+            for info in st.session_state["images_info"]:
+                if info["filename"] in sel:
+                    txt = info.get("bbox_txt")
+                    if not txt or not os.path.exists(txt):
+                        st.error(f"Pas de TXT pour {info['filename']}")
+                        continue
+                    paths = extract_background(info["original_path"],
+                                               txt,
+                                               BACKGROUND_FOLDER,
+                                               species="Unknown")
+                    cols = st.columns(3)
+                    for idx, p in enumerate(paths):
+                        with cols[idx % 3]:
+                            st.image(p, caption=os.path.basename(p),
+                                     use_container_width=True)
+                            with open(p, "rb") as fb:
+                                st.download_button(f"Télécharger {os.path.basename(p)}",
+                                                   fb.read(),
+                                                   file_name=os.path.basename(p))
 
-# ---------- Onglet Classification (Flou vs Nette) ----------
+# ---- Onglet Classification ----
 with tab_classification:
-    st.header("Classification : Flou ou Nette")
+    st.header("Classification : Flou vs Nette")
     if not st.session_state["images_info"]:
-        st.warning("Aucune image n'a été téléversée dans l'onglet Détection.")
+        st.warning("Aucune image uploadée")
     else:
-        # Sliders pour ajuster les seuils
-        threshold_sobel = st.slider("Seuil Sobel", min_value=0, max_value=3000, value=100, step=1)
-        threshold_fft = st.slider("Seuil FFT", min_value=0.0, max_value=10.0, value=3.0, step=0.1)
-        
-        st.write("Les images seront analysées avec ces seuils pour déterminer si elles sont floues ou nettes.")
-        
+        sobel_th = st.slider("Seuil Sobel", 0, 3000, 100)
+        fft_th   = st.slider("Seuil FFT",   0.0, 10.0, 3.0, 0.1)
         for info in st.session_state["images_info"]:
-            st.subheader(f"Classification pour : {info['filename']}")
-            image_path = info["original_path"]
-            blurry, sobel_val, fft_val = is_blurry(image_path, threshold_sobel, threshold_fft)
-            
-            # Charger l'image pour l'annotation
-            image = cv2.imread(image_path)
-            if image is None:
-                st.error(f"Erreur pour l'image {info['filename']}")
-                continue
-            # Ajouter le texte des métriques sur l'image
-            annotated = add_text_with_black_background(image.copy(), sobel_val, fft_val)
-            
-            classification = "Floue" if blurry else "Nette"
-            st.write(f"**Résultat :** {classification}")
-            st.write(f"Sobel Variance: {sobel_val:.2f}, FFT Metric: {fft_val:.2f}")
-            annotated_rgb = cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB)
-            st.image(annotated_rgb, caption=f"{info['filename']} - {classification}", use_container_width=True)
+            st.subheader(info["filename"])
+            blurry, vs, fm = is_blurry(info["original_path"], sobel_th, fft_th)
+            img = cv2.imread(info["original_path"])
+            ann = add_text_with_black_background(img.copy(), vs, fm)
+            ann_rgb = cv2.cvtColor(ann, cv2.COLOR_BGR2RGB)
+            st.image(ann_rgb, caption=("Floue" if blurry else "Nette"), use_container_width=True)
+            st.write(f"Sobel: {vs:.1f}, FFT: {fm:.2f}")
 
+# ---- Onglet Distribution nulle ----
+with tab_distribution:
+    st.header("Test de distribution nulle")
+    @st.cache_data
+    def load_emb(path): return pd.read_csv(path)
 
+    df_emb = load_emb("../Donnees/birds_conv2_features.csv")
+    species = sorted(df_emb['image_name'].str.split('_').str[0].unique())
+    sp = st.selectbox("Espèce", species)
+    imgs = df_emb[df_emb['image_name'].str.startswith(f"{sp}_")]['image_name']
+    sel_img = st.selectbox("Image", imgs)
+    n_bg   = st.number_input("n_bg",   1, 100, 9)
+    n_null = st.number_input("n_null",100,5000,1000,100)
 
+    if st.button("Lancer test"):
+        with st.spinner("Calcul en cours…"):
+            try:
+                d_intra, null_means = compute_distribution(sel_img, df_emb, n_bg, n_null)
+            except Exception as e:
+                st.error(str(e))
+                st.stop()
 
+        st.markdown(f"**d_intra :** {d_intra:.3f}")
+        st.markdown(f"**moyenne nulle :** {null_means.mean():.3f}")
+        low, high = np.percentile(null_means, 2.5), np.percentile(null_means, 97.5)
+        st.markdown(f"**95% CI :** [{low:.3f}, {high:.3f}]")
+
+        import matplotlib.pyplot as plt
+        fig, ax = plt.subplots()
+        ax.hist(null_means, bins=30, edgecolor='black')
+        ax.axvline(d_intra, color='red', linestyle='--', label=f"d_intra={d_intra:.2f}")
+        ax.set_xlabel("Distance moyenne")
+        ax.set_ylabel("Fréquence")
+        ax.legend()
+        st.pyplot(fig)

@@ -72,10 +72,7 @@ def save_embeddings(folder, out_csv, pooling='avg'):
     try:
         for idx, fname in enumerate(image_files, 1):
             base, _ = os.path.splitext(fname)
-            parts   = base.split('_')
-            species = parts[0]
-            img_id  = parts[-1]
-            name    = f"{species}_{img_id}"
+            name   = base
 
             path = os.path.join(folder, fname)
             emb  = extract_embedding(path, pooling)

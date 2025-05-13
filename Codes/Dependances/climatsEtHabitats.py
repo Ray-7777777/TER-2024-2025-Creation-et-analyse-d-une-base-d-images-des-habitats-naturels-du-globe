@@ -86,77 +86,81 @@ def avonet_habitats(avonet_file, sheet_name, species_name, dataset_dir):
         
         for life in lifestyle:
             file.write(f"{life}\n")
-
+            
 
 def ecosystemes(coordinates, dossier_raster, species_name, dataset_dir, src_epsg='epsg:3857'):
+    start = time.time()
+    print(f"\n📥 [ecosystemes] Début du traitement pour {species_name} ({len(coordinates)} points)")
+
     species_dir = os.path.join(dataset_dir, species_name)
-    results = {}
+    results = {coord: {"inside_rasters": []} for coord in coordinates}
 
-    # Définir le chemin du fichier XML
-    xml_file = os.path.join(dossier_raster, '..', 'map-details.xml')  # Construction du chemin relatif pour le fichier XML
+    # Charger le fichier XML
+    try:
+        xml_file = os.path.join(dossier_raster, '..', 'map-details.xml')
+        tree = ET.parse(xml_file)
+        root = tree.getroot()
+        efg_map = {el.get('efg_code'): el.find('Functional_group').text for el in root.findall('Maps/Map')}
+    except Exception as e:
+        print(f"❌ Erreur lors du chargement du XML : {e}")
+        return
 
-    # Charger le fichier XML contenant les descriptions
-    tree = ET.parse(xml_file)
-    root = tree.getroot()
-
-    # Créer un dictionnaire pour stocker les descriptions associées aux codes efg_code
-    efg_map = {}
-
-    # Parcourir le fichier XML et remplir le dictionnaire
-    for map_element in root.findall('Maps/Map'):  # Chemin des informations dans le XML
-        efg_code = map_element.get('efg_code')  # Extraire le code efg_code
-        description = map_element.find('Functional_group').text  # Extraire la description (Functional_group)
-        efg_map[efg_code] = description
-
-    # Initialisation du dictionnaire pour stocker les résultats de tous les points
-    for coords in coordinates:
-        results[coords] = {
-            "inside_rasters": []  # Liste des groupes fonctionnels et types d'occurrence associés
-        }
-
-    # Définir le système de projection source (par défaut en EPSG:3857) et cible (EPSG:4326)
+    # Transformation de coordonnées si nécessaire
     transformer = Transformer.from_crs(src_epsg, 'epsg:4326', always_xy=True)
 
-    # Parcourir tous les fichiers du dossier
-    for fichier in os.listdir(dossier_raster):
-        raster_file = os.path.join(dossier_raster, fichier)
+    raster_files = [f for f in os.listdir(dossier_raster) if f.endswith('.tif')]
+    print(f"📂 {len(raster_files)} fichiers .tif détectés dans le dossier raster")
 
-        # Extraire le code efg_code du nom du fichier raster
-        efg_code = '.'.join(fichier.split('.')[:2]) 
+    for idx, fichier in enumerate(raster_files):
+        raster_path = os.path.join(dossier_raster, fichier)
+        efg_code = '.'.join(fichier.split('.')[:2])
+        description = efg_map.get(efg_code, "Description inconnue")
 
-        # Ouvrir le fichier raster
-        with rasterio.open(raster_file) as src:
-            # Pour chaque coordonnée, créer un Point et tester s'il est à l'intérieur du raster
-            for coords in coordinates:
-                # Transformer les coordonnées (si nécessaire) en EPSG:4326 (latitude, longitude)
-                if src_epsg != 'epsg:4326':
-                    lon, lat = transformer.transform(coords[0], coords[1])
-                else:
-                    lat, lon = coords 
+        print(f"\n🔢 [{idx + 1}/{len(raster_files)}] Traitement du raster : {fichier}")
 
-                point = Point(lon, lat) 
+        try:
+            with rasterio.open(raster_path) as src:
+                print(f"✅ Raster ouvert : {fichier}")
+                for i, coord in enumerate(coordinates):
+                    try:
+                        print(f"  ➡️ Coordonnée {i + 1} : {coord}")
+                        if src_epsg != 'epsg:4326':
+                            lon, lat = transformer.transform(coord[0], coord[1])
+                        else:
+                            lat, lon = coord
 
-                # Vérifier si le point est dans l'étendue du raster
-                if not src.bounds[0] <= point.x <= src.bounds[2] or not src.bounds[1] <= point.y <= src.bounds[3]:
-                    continue  # Si le point est en dehors des limites du raster, on passe au suivant
+                        point = Point(lon, lat)
 
-                # Convertir les coordonnées géographiques en coordonnées du raster (ligne, colonne)
-                row, col = src.index(point.x, point.y)
+                        if not (src.bounds.left <= point.x <= src.bounds.right and
+                                src.bounds.bottom <= point.y <= src.bounds.top):
+                            print("    ⛔ En dehors des limites du raster")
+                            continue
 
-                # Vérifier la valeur du pixel dans le raster
-                value = src.read(1)[row, col]
-                
-                # Si la valeur est 1 (Major occurrence) ou 2 (Minor occurrence), on les ajoute à la liste
-                if value == 1 or value == 2:
-                    occurrence_type = "Major occurrence" if value == 1 else "Minor occurrence"
-                    results[coords]["inside_rasters"].append(f"{description}, {occurrence_type}")
+                        value = next(src.sample([(point.x, point.y)]))[0]
+                        print(f"    📍 Valeur lue : {value}")
 
-    # Enregistrer les résultats dans un fichier texte
+                        if value == 1 or value == 2:
+                            occurrence = "Major occurrence" if value == 1 else "Minor occurrence"
+                            results[coord]["inside_rasters"].append(f"{description}, {occurrence}")
+
+                    except Exception as pixel_error:
+                        print(f"    ⚠️ Erreur lecture pixel : {pixel_error}")
+                        continue
+
+        except Exception as raster_error:
+            print(f"❌ Erreur à l'ouverture du fichier {fichier} : {raster_error}")
+            continue
+
+    # Sauvegarde des résultats
     output_file = os.path.join(species_dir, 'ecosystemes_data.txt')
-    with open(output_file, 'w') as file:
-        # Pour chaque paire de coordonnées, concaténer toutes les descriptions des groupes fonctionnels
-        for coords, data in results.items():
-            if data["inside_rasters"]:
-                # Concaténer les informations de tous les rasters pour cette coordonnée
-                line = f"Coordinates {coords}: " + ", ".join(data["inside_rasters"])
-                file.write(line + "\n")
+    try:
+        with open(output_file, 'w') as f:
+            for coord, data in results.items():
+                if data["inside_rasters"]:
+                    line = f"Coordonnées {coord}: " + ", ".join(data["inside_rasters"])
+                    f.write(line + "\n")
+    except Exception as e:
+        print(f"❌ Erreur lors de l'écriture du fichier résultats : {e}")
+
+    duration = round(time.time() - start, 2)
+    print(f"\n✅ [ecosystemes] Traitement terminé pour {species_name} en {duration} secondes")

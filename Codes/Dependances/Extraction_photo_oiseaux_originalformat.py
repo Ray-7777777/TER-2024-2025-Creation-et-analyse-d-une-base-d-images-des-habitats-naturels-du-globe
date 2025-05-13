@@ -3,6 +3,7 @@ import requests
 import geopandas as gpd
 import climatsEtHabitats
 
+
 # Dossier parent pour toutes les espèces d'oiseaux
 dataset_dir = '/Donnees/birds_dataset'
 os.makedirs(dataset_dir, exist_ok=True)
@@ -20,8 +21,8 @@ avonet = "/Donnees/avonet/AVONET2_eBird.xlsx"
 sheet_name = "AVONET2_eBird"
 
 # Nombre d'espèces et d'images par espèce
-num_species = 50
-num_images_per_species = 5
+num_species = 1000
+num_images_per_species = 10
 
 
 # Fonction pour récupérer les espèces d'oiseaux
@@ -143,11 +144,23 @@ def download_images_for_species(taxon_id, species_name):
 
     # Appel des fonctions pour récupérer le climat, le(s) ecosystème(s), l'habitat et l'écorégion associés aux coordonnées de l'observation
     if coordinates:
+        print(f"📍 Lancement de l'analyse géospatiale pour {species_name}")
         climatsEtHabitats.climats(coordinates, shapefile_climats, species_name, dataset_dir)
+        print(f"✅ Climat OK pour {species_name}")
         climatsEtHabitats.ecoregions(coordinates, shapefile_ecoregions, species_name, dataset_dir)
-        climatsEtHabitats.ecosystemes(coordinates, raster_ecosystemes, species_name, dataset_dir)
+        print(f"✅ Écorégions OK pour {species_name}") 
+        
+        
+        #try:
+            #climatsEtHabitats.ecosystemes(coordinates, raster_ecosystemes, species_name, dataset_dir)
+            #print(f"✅ Écosystèmes OK pour {species_name}")
+        #except Exception as e:
+            #print(f"❌ Erreur dans ecosystemes() pour {species_name} : {e}")
 
+    
+    print(f"📊 Appel à AVONET pour {species_name}")
     climatsEtHabitats.avonet_habitats(avonet, sheet_name, species_name, dataset_dir)
+    print(f"✅ AVONET OK pour {species_name}")
     
 
 # Récupérer les premières `num_species` espèces d'oiseaux

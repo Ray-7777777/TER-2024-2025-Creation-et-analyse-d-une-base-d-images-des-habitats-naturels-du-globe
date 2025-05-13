@@ -4,7 +4,8 @@ FROM python:3.12-slim
 # Installer les dépendances nécessaires et PowerShell
 RUN apt-get update && apt-get install -y \
     wget \
-    curl \
+    curl \ 
+    gnupg \
     apt-transport-https \
     software-properties-common \
     lsb-release \
@@ -15,10 +16,16 @@ RUN apt-get update && apt-get install -y \
     libjpeg-dev \
     libpng-dev \
     libtiff-dev \
-    && wget -q "https://packages.microsoft.com/config/debian/12/packages-microsoft-prod.deb" -O packages-microsoft-prod.deb \
-    && dpkg -i packages-microsoft-prod.deb \
-    && apt-get update && apt-get install -y powershell \
-    && rm packages-microsoft-prod.deb
+    gdal-bin \
+    libgdal-dev
+
+# ✅ Installer PowerShell manuellement pour ARM64 (Mac M1/M2)
+RUN curl -L https://github.com/PowerShell/PowerShell/releases/download/v7.4.1/powershell-7.4.1-linux-arm64.tar.gz -o /tmp/pwsh.tar.gz && \
+    mkdir -p /opt/microsoft/powershell/7 && \
+    tar -xzf /tmp/pwsh.tar.gz -C /opt/microsoft/powershell/7 && \
+    ln -s /opt/microsoft/powershell/7/pwsh /usr/bin/pwsh && \
+    rm /tmp/pwsh.tar.gz
+
 
 # Installer ImageMagick depuis le dépôt GitHub
 RUN git clone https://github.com/ImageMagick/ImageMagick.git \
@@ -41,6 +48,9 @@ COPY Codes/ .
 
 # Copier le dossier `Donnees` dans le conteneur
 COPY Donnees /Donnees
+
+ENV GDAL_VERSION=3.6.2
+
 
 # Copier le fichier requirements.txt (s'il est dans le dossier de base)
 COPY requirements.txt .
