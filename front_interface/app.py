@@ -17,14 +17,12 @@ import folium
 import streamlit.components.v1 as components
 import geopandas as gpd
 from shapely.geometry import Point
-
+from folium import Element
 
 # Import de la fonction d'extraction du background
 from extraction_bckgd import extract_background
 
-from comparaison_features import run_pipeline
-
-from climatsEtHabitats import climats, ecoregions, avonet_habitats, ecosystemes, biomes
+from climatsEtHabitats import climats, ecoregions, avonet_habitats, ecosystemes, raster_classifications, parse_legend, compute_intersections, avonet_habitats
 
 SCRIPT_PATH = os.path.join(os.path.dirname(__file__), 'extraire_oiseaux.sh')
 
@@ -358,6 +356,7 @@ with tab_similarites:
     st.header("Calcul des similarités")
 
     if st.button("📊 Calculer les similarités"):
+        from comparaison_features import run_pipeline
         with st.spinner("Extraction des features et calcul complet…"):
             # 1) dossier des images oiseaux et backgrounds
             birds_folder = os.path.join("static", "oiseaux_extraits")
@@ -442,125 +441,234 @@ with tab_similarites:
 ECOREGIONS_SHP      = "../Donnees/Ecoregions/wwf_terr_ecos.shp"
 CLIMATES_SHP        = "../Donnees/climates/climates.shp"
 ECOSYS_RASTER_DIR   = "../Donnees/Ecosystemes/raster/"
+RASTER_PATH  = "../Donnees/Raster_habitats/Biome_Inventory_RasterStack.tif"
+BANDS        = [26, 9, 18, 23]
+BAND_NAMES   = ["Leemans", "Higgins", "Friedl", "Olson"]
+LEGEND_PATH = "../Donnees/Raster_habitats/Biome_Inventory_Legends.txt"
+AVONET_FILE       = "../Donnees/avonet/AVONET2_eBird.xlsx"
 
+# ---------- Onglet Cartes ----------
 with tab_cartes:
     st.header("Projeter vos coordonnées par modalité")
 
-    # 1) Upload du fichier de coordonnées
-    uploaded = st.file_uploader(
-        "Téléchargez votre fichier de coordonnées (colonnes : latitude,longitude)",
-        type=["csv", "txt"]
+    # --- Option : extractions spatiales (écosystèmes + biomes raster) ---
+    include_spatial = st.checkbox(
+        "Inclure l'extraction des écosystèmes et des biomes raster",
+        value=True
     )
 
-    # 2) Choix de la modalité
-    modality = st.selectbox("Choisissez la modalité",
-        ["Climats", "Ecorégions", "Ecosystèmes"]
+    # --- 1) Téléversement ---
+    uploaded_files = st.file_uploader(
+        "Téléchargez vos fichiers (latitude,longitude)",
+        type=["csv","txt"], accept_multiple_files=True
     )
+    if not uploaded_files:
+        st.info("📄 Importez au moins un fichier pour démarrer.")
+        st.stop()
 
-    # 3) Si Climats, choix du niveau de détail
+    # --- 2) Lecture des coordonnées ---
+    species_coords = {}
+    for f in uploaded_files:
+        raw = os.path.splitext(f.name)[0]
+        try:
+            df = pd.read_csv(f)
+            pts = list(zip(df["latitude"], df["longitude"]))
+            if pts:
+                species_coords[raw] = pts
+        except Exception:
+            st.warning(f"Impossible de lire {f.name}")
+    if not species_coords:
+        st.error("Aucune coordonnée valide trouvée.")
+        st.stop()
+
+    # --- 3) Pré-chargement des shapefiles (toujours) et de la légende raster (facultatif) ---
+    gdf_clim = gpd.read_file(CLIMATES_SHP).to_crs(epsg=4326)
+    gdf_eco  = gpd.read_file(ECOREGIONS_SHP).to_crs(epsg=4326)
+    legend_map = None
+    if include_spatial:
+        legend_map = parse_legend(LEGEND_PATH, BANDS)
+
+    # --- 4) Spatial join Climat/Ecorégions ---
+    inter_map = compute_intersections(species_coords, CLIMATES_SHP, ECOREGIONS_SHP)
+
+    # --- 5) Construction du tableau récapitulatif ---
+    rows = []
+    for raw, coords in species_coords.items():
+        display = " ".join(raw.split("_")[:2])
+
+        # a) AVONET (toujours)
+        avonet_str = ""
+        try:
+            avonet_habitats(AVONET_FILE, "AVONET2_eBird", display, geo_folder)
+        except Exception:
+            pass
+        hab_file = os.path.join(geo_folder, display, "habitats_data.txt")
+        if os.path.exists(hab_file):
+            with open(hab_file, encoding="utf-8") as hf:
+                avonet_str = "; ".join([L.strip() for L in hf if L.strip()])
+
+        # b) Écosystèmes + Raster (facultatif)
+        ecosys_map = {}
+        raster_map = {}
+        if include_spatial:
+            # Écosystèmes
+            sd = os.path.join(geo_folder, raw)
+            os.makedirs(sd, exist_ok=True)
+            ecosystemes(coords, ECOSYS_RASTER_DIR, raw, geo_folder)
+            eco_txt = os.path.join(sd, "ecosystemes_data.txt")
+            if os.path.exists(eco_txt):
+                for L in open(eco_txt, encoding="utf-8"):
+                    pr = L.strip().split("):", 1)
+                    if len(pr) == 2:
+                        cp, desc = pr
+                        cp = cp.replace("Coordinates (", "")
+                        lat, lon = map(float, cp.split(","))
+                        ecosys_map[(lat, lon)] = desc.strip()
+
+            # Raster multibande
+            raster_map = raster_classifications(
+                coords,
+                RASTER_PATH,
+                BANDS,
+                BAND_NAMES,
+                raw,
+                geo_folder,
+                legend_map=legend_map
+            )
+
+        # c) Remplissage des lignes
+        for lat, lon in coords:
+            inter = inter_map.get((raw, lat, lon), {})
+            row = {
+                "Espèce":         display,
+                "Latitude":       lat,
+                "Longitude":      lon,
+                "Climat":         inter.get("Climat"),
+                "Sub-climat":     inter.get("Sub-climat"),
+                "Sub-sub-climat": inter.get("Sub-sub-climat"),
+                "Ecorégion":      inter.get("Ecorégion"),
+                "Ecosystème":     ecosys_map.get((lat, lon)),
+                "AVONET":         avonet_str
+            }
+            # ajouter les colonnes raster si demandé
+            if include_spatial:
+                # raster_map[(lat,lon)] est un dict { "Leemans": val, ... }
+                row.update(raster_map.get((lat, lon), {bn: None for bn in BAND_NAMES}))
+            rows.append(row)
+
+    df_summary = pd.DataFrame(rows)
+    st.markdown("### Tableau récapitulatif de toutes les observations")
+    st.dataframe(df_summary)
+
+    # --- 6) Menus déroulants sous le tableau ---
+    names    = ["Toutes espèces"] + [f.name for f in uploaded_files]
+    choice   = st.selectbox("Fichier à afficher", names)
+    modality = st.selectbox("Modalité", ["Climats","Ecorégions","Ecosystèmes"])
     if modality == "Climats":
-        climat_level = st.selectbox("Niveau de détail",
-            ["Climat", "Sub-climat", "Sub-sub-climat"]
+        climat_level = st.selectbox(
+            "Niveau de détail", ["Climat","Sub-climat","Sub-sub-climat"]
         )
 
-    # 4) Affichage sur bouton
-    if uploaded and st.button("Afficher la carte"):
-        # Nom d'espèce (pour dossier, non dans tooltip)
-        species = os.path.splitext(uploaded.name)[0]
+    # --- 7) Affichage de la carte ---
+    if st.button("Afficher la carte"):
+        if choice != "Toutes espèces":
+            raw     = os.path.splitext(choice)[0]
+            display = " ".join(raw.split("_")[:2])
+            df_plot = df_summary[df_summary["Espèce"] == display]
+        else:
+            df_plot = df_summary
 
-        # Lecture des coordonnées
-        try:
-            df = pd.read_csv(uploaded)
-            coords = list(zip(df["latitude"], df["longitude"]))
-        except Exception as e:
-            st.error(f"Erreur lecture des coordonnées : {e}")
+        if df_plot.empty:
+            st.error("Pas d'observations pour la sélection.")
             st.stop()
 
-        if not coords:
-            st.error("Aucune coordonnée valide.")
-            st.stop()
+        m = folium.Map(
+            location=[df_plot["Latitude"].mean(), df_plot["Longitude"].mean()],
+            zoom_start=4
+        )
 
-        # --- Préparation de la carte et des légendes ---
-        desc_map = {}  # coord → label
-        if modality in ("Climats", "Ecorégions"):
-            # 1) Choix shapefile et champs à concaténer
+        # superposition shapefile
+        if modality in ("Climats","Ecorégions"):
+            shp = CLIMATES_SHP if modality=="Climats" else ECOREGIONS_SHP
+            gdf = gpd.read_file(shp).to_crs(epsg=4326)
             if modality == "Climats":
-                shp_path = CLIMATES_SHP
-                if climat_level == "Climat":
-                    fields = ["CLIMATE"]
-                elif climat_level == "Sub-climat":
-                    fields = ["CLIMATE", "SUB-CLIMAT"]
-                else:
-                    fields = ["CLIMATE", "SUB-CLIMAT", "SUB-SUB-CL"]
+                col = {"Climat":"CLIMATE",
+                       "Sub-climat":"SUB-CLIMAT",
+                       "Sub-sub-climat":"SUB-SUB-CL"}[climat_level]
             else:
-                shp_path = ECOREGIONS_SHP
-                fields = ["ECO_NAME"]
-
-            # 2) Charger & reprojeter
-            gdf = gpd.read_file(shp_path).to_crs(epsg=4326)
-
-            # 3) Construire colonne composite
-            def make_label(row):
-                return " — ".join(str(row[f]) for f in fields if pd.notna(row[f]))
-            gdf["__combo__"] = gdf.apply(make_label, axis=1)
-
-            # 4) Générer couleur par combo
-            combos = gdf["__combo__"].unique()
-            color_map = {c: f"#{random.randint(0,0xFFFFFF):06x}" for c in combos}
-
-            # 5) Centre et carte
-            minx, miny, maxx, maxy = gdf.total_bounds
-            center = [(miny+maxy)/2, (minx+maxx)/2]
-            m = folium.Map(location=center, zoom_start=4)
-            m.fit_bounds([[miny, minx], [maxy, maxx]])
-
-            # 6) Polygones colorés
+                col = "ECO_NAME"
+            cmap = {c: f"#{random.randint(0,0xFFFFFF):06x}" for c in gdf[col].unique()}
             folium.GeoJson(
                 gdf.to_json(),
                 style_function=lambda feat: {
-                    "fillColor":   color_map.get(feat["properties"]["__combo__"], "#CCCCCC"),
+                    "fillColor":   cmap.get(feat["properties"][col], "#CCCCCC"),
                     "color":       "#444444",
                     "weight":      1,
                     "fillOpacity": 0.5
                 }
             ).add_to(m)
 
-            # 7) Intersection pour tooltips sur les points
-            pts = gpd.GeoDataFrame(
-                geometry=[Point(lon, lat) for lat, lon in coords],
-                crs="EPSG:4326"
-            )
-            joined = gpd.sjoin(pts, gdf, how="left", predicate="intersects")
-            for _, row in joined.iterrows():
-                lat, lon = row.geometry.y, row.geometry.x
-                label = row.get("__combo__", None)
-                desc_map[(lat, lon)] = label if pd.notna(label) else "Hors zone"
+        # points et tooltip
+        pcol = {sp: f"#{random.randint(0,0xFFFFFF):06x}" for sp in df_plot["Espèce"].unique()}
+        for _, r in df_plot.iterrows():
+            # construction du tooltip selon la modalité
+            if modality=="Climats":
+                tip = (
+                    f"Climat : {r['Climat']}<br>"
+                    f"Sub-climat : {r['Sub-climat']}<br>"
+                    f"Sub-sub-climat : {r['Sub-sub-climat']}<br>"
+                    f"Ecorégion : {r['Ecorégion']}<br>"
+                    f"Ecosystème : {r['Ecosystème']}"
+                )
+            elif modality=="Ecorégions":
+                tip = (
+                    f"Ecorégion : {r['Ecorégion']}<br>"
+                    f"Ecosystème : {r['Ecosystème']}"
+                )
+            else:
+                tip = f"Ecosystème : {r['Ecosystème']}"
 
-        else:
-            # Écosystèmes : fond OSM centré sur la moyenne des points
-            avg_lat = sum(lat for lat, _ in coords)/len(coords)
-            avg_lon = sum(lon for _, lon in coords)/len(coords)
-            m = folium.Map(location=[avg_lat, avg_lon], zoom_start=4)
+            # valeurs raster si incluses
+            if include_spatial:
+                for bn in BAND_NAMES:
+                    tip += f"<br>{bn} : {r.get(bn)}"
 
-            # Génération du fichier d'écosystèmes
-            species_dir = os.path.join(geo_folder, species)
-            os.makedirs(species_dir, exist_ok=True)
-            ecosystemes(coords, ECOSYS_RASTER_DIR, species, geo_folder)
-            # tooltip = modalité
-            for lat, lon in coords:
-                desc_map[(lat, lon)] = modality
+            tip += f"<br>AVONET : {r['AVONET']}"
 
-        # --- Ajout des points avec tooltip ---
-        for lat, lon in coords:
-            tooltip_txt = desc_map.get((lat, lon), "")
+            clr = pcol[r["Espèce"]]
             folium.CircleMarker(
-                location=[lat, lon],
+                [r["Latitude"], r["Longitude"]],
                 radius=6,
-                color="red",
+                color=clr,
                 fill=True,
+                fill_color=clr,
                 fill_opacity=0.8,
-                tooltip=tooltip_txt
+                tooltip=tip,
+                parse_html=True
             ).add_to(m)
 
-        # --- Affichage dans Streamlit ---
+        # ——— légende des espèces ———
+        legend_html = (
+            '<div style="'
+            'position: fixed; bottom:10px; left:10px; '
+            'background:white; padding:10px; border:2px solid grey; '
+            'z-index:9999; font-size:14px;">'
+            '<b>Légende des espèces</b><br>'
+        )
+        # on ajoute chaque espèce+couleur
+        for sp, clr in pcol.items():
+            legend_html += (
+                f'<i style="'
+                f'background:{clr};'
+                'width:10px;height:10px;'
+                'display:inline-block;'
+                'border-radius:50%;'
+                'margin-right:5px;'
+                '"></i>'
+                f'{sp}<br>'
+            )
+        legend_html += '</div>'
+
+        # on injecte dans la map
+        m.get_root().html.add_child(Element(legend_html))
         components.html(m._repr_html_(), height=600, scrolling=True)

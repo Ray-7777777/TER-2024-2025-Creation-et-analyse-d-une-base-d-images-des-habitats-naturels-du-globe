@@ -162,74 +162,84 @@ def ecosystemes(coordinates, dossier_raster, species_name, dataset_dir, src_epsg
                 line = f"Coordinates {coords}: " + ", ".join(data["inside_rasters"])
                 file.write(line + "\n")
 
-def biomes(coordinates, dossier_biomes_higgins, species_name, dataset_dir, src_epsg='epsg:4326'):
-    species_dir = os.path.join(dataset_dir, species_name)
+def parse_legend(legend_path, band_numbers):
+    text = open(legend_path, encoding="latin-1").read()
+    mapping = {}
+    for part in text.split("Biome Inventory layer ")[1:]:
+        hdr, rest = part.split(":", 1)
+        layer = int(hdr.strip().split()[0])
+        if layer in band_numbers:
+            entries = [e.strip() for e in rest.split(";") if e.strip()]
+            val_map = {}
+            for e in entries:
+                if "," in e:
+                    v, lbl = e.split(",", 1)
+                    try:
+                        val_map[int(v.strip())] = lbl.strip()
+                    except:
+                        pass
+            mapping[layer] = val_map
+    return mapping
+
+def raster_classifications(coordinates, raster_path, bands, band_names,
+                           species_name, geo_folder, legend_map=None,
+                           src_epsg="epsg:4326"):
+    transformer = Transformer.from_crs(src_epsg, "epsg:4326", always_xy=True)
     results = {}
+    species_dir = os.path.join(geo_folder, species_name)
+    os.makedirs(species_dir, exist_ok=True)
 
-    # Charger le fichier XML contenant les descriptions des efg_code
-    xml_file = os.path.join(dossier_biomes_higgins, '..', 'map-details.xml')
-    tree = ET.parse(xml_file)
-    root = tree.getroot()
-
-    efg_map = {}
-    for map_element in root.findall('Maps/Map'):
-        efg_code = map_element.get('efg_code')
-        description = map_element.find('Functional_group').text
-        efg_map[efg_code] = description
-
-    # Initialisation des résultats
-    for coords in coordinates:
-        results[coords] = {"inside_rasters": []}
-
-    # Définir la transformation de coordonnées
-    transformer = Transformer.from_crs(src_epsg, 'epsg:4326', always_xy=True)
-
-    # Parcourir les fichiers raster dans le dossier
-    for fichier in os.listdir(dossier_biomes_higgins):
-        if not fichier.endswith('.nc'):  # Vérifie si c'est bien un fichier .asc
-            continue
-        
-        raster_file = os.path.join(dossier_biomes_higgins, fichier)
-
-        # Extraction du code efg_code à partir du nom du fichier
-        efg_code = '.'.join(fichier.split('.')[:2]) 
-
-        # Vérifier si l'efg_code est dans le XML
-        description = efg_map.get(efg_code, "Unknown Group")
-
-        # Ouvrir le raster .asc avec Rasterio
-        with rasterio.open(raster_file) as src:
-            for coords in coordinates:
-                # Transformation des coordonnées
-                if src_epsg != 'epsg:4326':
-                    lon, lat = transformer.transform(coords[0], coords[1])
+    with rasterio.open(raster_path) as src:
+        for lat, lon in coordinates:
+            row, col = src.index(lon, lat)
+            vals = {}
+            for b_idx, name in zip(bands, band_names):
+                try:
+                    raw = int(src.read(b_idx)[row, col])
+                except:
+                    raw = None
+                if legend_map and b_idx in legend_map:
+                    vals[name] = legend_map[b_idx].get(raw)
                 else:
-                    lat, lon = coords
+                    vals[name] = raw
+            results[(lat, lon)] = vals
 
-                point = Point(lon, lat)
+    out_txt = os.path.join(species_dir, "raster_classes.txt")
+    with open(out_txt, "w", encoding="utf-8") as f:
+        f.write("Latitude,Longitude," + ",".join(band_names) + "\n")
+        for (lat, lon), vals in results.items():
+            line = ",".join(str(vals[n]) if vals[n] is not None else "" for n in band_names)
+            f.write(f"{lat},{lon},{line}\n")
 
-                # Vérifier si le point est dans les limites du raster
-                if not (src.bounds.left <= point.x <= src.bounds.right and src.bounds.bottom <= point.y <= src.bounds.top):
-                    continue  
+    return results
 
-                # Convertir les coordonnées en indices de raster
-                row, col = src.index(point.x, point.y)
+def compute_intersections(all_coords, shapefile_clim, shapefile_eco):
+    # construit un seul GeoDataFrame pour toutes les espèces
+    rows = []
+    for sp, pts in all_coords.items():
+        for lat, lon in pts:
+            rows.append({"Espèce": sp, "lat": lat, "lon": lon})
+    pts_gdf = gpd.GeoDataFrame(
+        rows, geometry=[Point(r["lon"], r["lat"]) for r in rows], crs="EPSG:4326"
+    )
+    gdf_clim = gpd.read_file(shapefile_clim).to_crs(epsg=4326)
+    gdf_eco  = gpd.read_file(shapefile_eco).to_crs(epsg=4326)
 
-                # Lire la valeur du raster
-                value = src.read(1)[row, col]
+    clim_join = gpd.sjoin(pts_gdf, gdf_clim, how="left", predicate="intersects")
+    eco_join  = gpd.sjoin(pts_gdf, gdf_eco,  how="left", predicate="intersects")
 
-                # Vérifier les valeurs et ajouter à la liste
-                if value == 1 or value == 2:
-                    occurrence_type = "Major occurrence" if value == 1 else "Minor occurrence"
-                    results[coords]["inside_rasters"].append(f"{description}, {occurrence_type}")
-
-    # Sauvegarde des résultats
-    output_file = os.path.join(species_dir, '/Biomes/Higgins_data.txt')
-    with open(output_file, 'w') as file:
-        for coords, data in results.items():
-            if data["inside_rasters"]:
-                line = f"Coordinates {coords}: " + ", ".join(data["inside_rasters"])
-                file.write(line + "\n")
+    out = {}
+    for idx, row in pts_gdf.iterrows():
+        lat, lon, sp = row["lat"], row["lon"], row["Espèce"]
+        c = clim_join.loc[idx]
+        e = eco_join.loc[idx]
+        out[(sp, lat, lon)] = {
+            "Climat":         c.get("CLIMATE"),
+            "Sub-climat":     c.get("SUB-CLIMAT"),
+            "Sub-sub-climat": c.get("SUB-SUB-CL"),
+            "Ecorégion":      e.get("ECO_NAME")
+        }
+    return out
 
 def carte(dataset_dir):
     # Créer une carte centrée sur une zone approximative
