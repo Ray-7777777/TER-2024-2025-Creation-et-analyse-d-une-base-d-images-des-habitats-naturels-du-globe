@@ -188,7 +188,7 @@ model = DetectMultiBackend('./best.pt', device=torch.device('cpu'))
 if "images_info" not in st.session_state:
     st.session_state["images_info"] = []
 
-tab_detection, tab_background, tab_classification, tab_similarites, tab_cartes = st.tabs(["Détection", "Background", "Classification", "Similarités", "Cartes"])
+tab_detection, tab_background, tab_classification, tab_similarites, tab_cartes = st.tabs(["Détection", "Background", "Classification", "Similarités", "Données Géographiques"])
 
 # ---------- Onglet Détection ----------
 with tab_detection:
@@ -357,7 +357,7 @@ with tab_similarites:
 
     if st.button("📊 Calculer les similarités"):
         from comparaison_features import run_pipeline
-        with st.spinner("Extraction des features et calcul complet…"):
+        with st.spinner("Extraction des features et calcul des similarités…"):
             # 1) dossier des images oiseaux et backgrounds
             birds_folder = os.path.join("static", "oiseaux_extraits")
             bg_folder    = os.path.join("static", "background", "unknown")
@@ -385,29 +385,6 @@ with tab_similarites:
                 csv_pair_stats,
                 csv_conf_mat
             )
-
-        st.success("✅ Pipeline complet exécuté ! Les fichiers sont dans `static/similarites/`")
-
-        # 5) Téléchargement de tous les CSV générés
-        for path in [
-            csv_birds,
-            csv_bg_conv2,
-            csv_bg_means,
-            csv_distances,
-            csv_pair_stats,
-            csv_conf_mat
-        ]:
-            if os.path.exists(path):
-                with open(path, "rb") as f:
-                    st.download_button(
-                        label=f"Télécharger {os.path.basename(path)}",
-                        data=f,
-                        file_name=os.path.basename(path),
-                        mime="text/csv",
-                        key=f"dl_{os.path.basename(path)}"
-                    )
-            else:
-                st.error(f"Fichier introuvable : {os.path.basename(path)}")
 
         # 6) Affichage de la matrice de confusion
         import pandas as pd
