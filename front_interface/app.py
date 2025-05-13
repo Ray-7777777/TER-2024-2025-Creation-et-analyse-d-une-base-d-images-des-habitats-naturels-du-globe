@@ -453,14 +453,14 @@ with tab_cartes:
 
     # --- Option : extractions spatiales (écosystèmes + biomes raster) ---
     include_spatial = st.checkbox(
-        "Inclure l'extraction des écosystèmes et des biomes raster",
+        "Inclure l'extraction des écosystèmes et des biomes (très long)",
         value=True
     )
 
     # --- 1) Téléversement ---
     uploaded_files = st.file_uploader(
         "Téléchargez vos fichiers (latitude,longitude)",
-        type=["csv","txt"], accept_multiple_files=True
+        type=["csv", "txt"], accept_multiple_files=True
     )
     if not uploaded_files:
         st.info("📄 Importez au moins un fichier pour démarrer.")
@@ -481,12 +481,21 @@ with tab_cartes:
         st.error("Aucune coordonnée valide trouvée.")
         st.stop()
 
-    # --- 3) Pré-chargement des shapefiles (toujours) et de la légende raster (facultatif) ---
+    # --- 3) Pré-chargement shapefiles (toujours) et légende raster (facultatif) ---
     gdf_clim = gpd.read_file(CLIMATES_SHP).to_crs(epsg=4326)
     gdf_eco  = gpd.read_file(ECOREGIONS_SHP).to_crs(epsg=4326)
-    legend_map = None
+
+    legend_map = {}
     if include_spatial:
-        legend_map = parse_legend(LEGEND_PATH, BANDS)
+        raw_legend = parse_legend(LEGEND_PATH, BANDS)
+        legend_map = {
+            str(int(band)): { str(int(k)): v for k, v in band_map.items() }
+            for band, band_map in raw_legend.items()
+        }
+        import rasterio
+        from pyproj import Transformer
+        src = rasterio.open(RASTER_PATH)
+        transformer = Transformer.from_crs("EPSG:4326", src.crs.to_string(), always_xy=True)
 
     # --- 4) Spatial join Climat/Ecorégions ---
     inter_map = compute_intersections(species_coords, CLIMATES_SHP, ECOREGIONS_SHP)
@@ -496,8 +505,8 @@ with tab_cartes:
     for raw, coords in species_coords.items():
         display = " ".join(raw.split("_")[:2])
 
-        # a) AVONET (toujours)
-        avonet_str = ""
+        # a) AVONET
+        av_str = ""
         try:
             avonet_habitats(AVONET_FILE, "AVONET2_eBird", display, geo_folder)
         except Exception:
@@ -505,36 +514,44 @@ with tab_cartes:
         hab_file = os.path.join(geo_folder, display, "habitats_data.txt")
         if os.path.exists(hab_file):
             with open(hab_file, encoding="utf-8") as hf:
-                avonet_str = "; ".join([L.strip() for L in hf if L.strip()])
+                av_str = "; ".join([L.strip() for L in hf if L.strip()])
 
-        # b) Écosystèmes + Raster (facultatif)
+        # b) Écosystèmes et Raster (facultatif)
         ecosys_map = {}
         raster_map = {}
         if include_spatial:
-            # Écosystèmes
             sd = os.path.join(geo_folder, raw)
             os.makedirs(sd, exist_ok=True)
             ecosystemes(coords, ECOSYS_RASTER_DIR, raw, geo_folder)
             eco_txt = os.path.join(sd, "ecosystemes_data.txt")
             if os.path.exists(eco_txt):
                 for L in open(eco_txt, encoding="utf-8"):
-                    pr = L.strip().split("):", 1)
-                    if len(pr) == 2:
-                        cp, desc = pr
+                    parts = L.strip().split("):", 1)
+                    if len(parts) == 2:
+                        cp, desc = parts
                         cp = cp.replace("Coordinates (", "")
                         lat, lon = map(float, cp.split(","))
                         ecosys_map[(lat, lon)] = desc.strip()
 
-            # Raster multibande
-            raster_map = raster_classifications(
-                coords,
-                RASTER_PATH,
-                BANDS,
-                BAND_NAMES,
-                raw,
-                geo_folder,
-                legend_map=legend_map
-            )
+            # Extraction inline du raster
+            for lat, lon in coords:
+                x, y = transformer.transform(lon, lat)
+                try:
+                    row_idx, col_idx = src.index(x, y)
+                except Exception:
+                    raster_map[(lat, lon)] = {bn: None for bn in BAND_NAMES}
+                    continue
+
+                vals = {}
+                for band, name in zip(BANDS, BAND_NAMES):
+                    try:
+                        raw_val = src.read(band)[row_idx, col_idx]
+                        key = str(int(raw_val))
+                        cls = legend_map.get(str(band), {}).get(key)
+                    except Exception:
+                        cls = None
+                    vals[name] = cls
+                raster_map[(lat, lon)] = vals
 
         # c) Remplissage des lignes
         for lat, lon in coords:
@@ -548,11 +565,9 @@ with tab_cartes:
                 "Sub-sub-climat": inter.get("Sub-sub-climat"),
                 "Ecorégion":      inter.get("Ecorégion"),
                 "Ecosystème":     ecosys_map.get((lat, lon)),
-                "AVONET":         avonet_str
+                "AVONET":         av_str
             }
-            # ajouter les colonnes raster si demandé
             if include_spatial:
-                # raster_map[(lat,lon)] est un dict { "Leemans": val, ... }
                 row.update(raster_map.get((lat, lon), {bn: None for bn in BAND_NAMES}))
             rows.append(row)
 
@@ -560,20 +575,18 @@ with tab_cartes:
     st.markdown("### Tableau récapitulatif de toutes les observations")
     st.dataframe(df_summary)
 
-    # --- 6) Menus déroulants sous le tableau ---
-    names    = ["Toutes espèces"] + [f.name for f in uploaded_files]
-    choice   = st.selectbox("Fichier à afficher", names)
-    modality = st.selectbox("Modalité", ["Climats","Ecorégions","Ecosystèmes"])
+    # --- 6) Menus déroulants ---
+    names  = ["Toutes espèces"] + [f.name for f in uploaded_files]
+    choice = st.selectbox("Fichier à afficher", names)
+    modality = st.selectbox("Modalité", ["Climats", "Ecorégions", "Écosystèmes"])
     if modality == "Climats":
-        climat_level = st.selectbox(
-            "Niveau de détail", ["Climat","Sub-climat","Sub-sub-climat"]
-        )
+        climat_level = st.selectbox("Niveau de détail", ["Climat", "Sub-climat", "Sub-sub-climat"])
 
     # --- 7) Affichage de la carte ---
     if st.button("Afficher la carte"):
         if choice != "Toutes espèces":
-            raw     = os.path.splitext(choice)[0]
-            display = " ".join(raw.split("_")[:2])
+            raw2    = os.path.splitext(choice)[0]
+            display = " ".join(raw2.split("_")[:2])
             df_plot = df_summary[df_summary["Espèce"] == display]
         else:
             df_plot = df_summary
@@ -588,13 +601,11 @@ with tab_cartes:
         )
 
         # superposition shapefile
-        if modality in ("Climats","Ecorégions"):
-            shp = CLIMATES_SHP if modality=="Climats" else ECOREGIONS_SHP
+        if modality in ("Climats", "Ecorégions"):
+            shp = CLIMATES_SHP if modality == "Climats" else ECOREGIONS_SHP
             gdf = gpd.read_file(shp).to_crs(epsg=4326)
             if modality == "Climats":
-                col = {"Climat":"CLIMATE",
-                       "Sub-climat":"SUB-CLIMAT",
-                       "Sub-sub-climat":"SUB-SUB-CL"}[climat_level]
+                col = {"Climat": "CLIMATE", "Sub-climat": "SUB-CLIMAT", "Sub-sub-climat": "SUB-SUB-CL"}[climat_level]
             else:
                 col = "ECO_NAME"
             cmap = {c: f"#{random.randint(0,0xFFFFFF):06x}" for c in gdf[col].unique()}
@@ -608,11 +619,10 @@ with tab_cartes:
                 }
             ).add_to(m)
 
-        # points et tooltip
+        # points et tooltips
         pcol = {sp: f"#{random.randint(0,0xFFFFFF):06x}" for sp in df_plot["Espèce"].unique()}
         for _, r in df_plot.iterrows():
-            # construction du tooltip selon la modalité
-            if modality=="Climats":
+            if modality == "Climats":
                 tip = (
                     f"Climat : {r['Climat']}<br>"
                     f"Sub-climat : {r['Sub-climat']}<br>"
@@ -620,7 +630,7 @@ with tab_cartes:
                     f"Ecorégion : {r['Ecorégion']}<br>"
                     f"Ecosystème : {r['Ecosystème']}"
                 )
-            elif modality=="Ecorégions":
+            elif modality == "Ecorégions":
                 tip = (
                     f"Ecorégion : {r['Ecorégion']}<br>"
                     f"Ecosystème : {r['Ecosystème']}"
@@ -628,13 +638,11 @@ with tab_cartes:
             else:
                 tip = f"Ecosystème : {r['Ecosystème']}"
 
-            # valeurs raster si incluses
             if include_spatial:
                 for bn in BAND_NAMES:
                     tip += f"<br>{bn} : {r.get(bn)}"
 
             tip += f"<br>AVONET : {r['AVONET']}"
-
             clr = pcol[r["Espèce"]]
             folium.CircleMarker(
                 [r["Latitude"], r["Longitude"]],
@@ -647,28 +655,19 @@ with tab_cartes:
                 parse_html=True
             ).add_to(m)
 
-        # ——— légende des espèces ———
+        # légende des espèces
         legend_html = (
-            '<div style="'
-            'position: fixed; bottom:10px; left:10px; '
+            '<div style="position: fixed; bottom:10px; left:10px; '
             'background:white; padding:10px; border:2px solid grey; '
-            'z-index:9999; font-size:14px;">'
-            '<b>Légende des espèces</b><br>'
+            'z-index:9999; font-size:14px;"><b>Légende des espèces</b><br>'
         )
-        # on ajoute chaque espèce+couleur
         for sp, clr in pcol.items():
             legend_html += (
-                f'<i style="'
-                f'background:{clr};'
-                'width:10px;height:10px;'
-                'display:inline-block;'
-                'border-radius:50%;'
-                'margin-right:5px;'
-                '"></i>'
+                f'<i style="background:{clr}; width:10px; height:10px; '
+                'display:inline-block; border-radius:50%; margin-right:5px;"></i>'
                 f'{sp}<br>'
             )
         legend_html += '</div>'
 
-        # on injecte dans la map
         m.get_root().html.add_child(Element(legend_html))
         components.html(m._repr_html_(), height=600, scrolling=True)

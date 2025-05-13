@@ -181,34 +181,58 @@ def parse_legend(legend_path, band_numbers):
             mapping[layer] = val_map
     return mapping
 
-def raster_classifications(coordinates, raster_path, bands, band_names,
-                           species_name, geo_folder, legend_map=None,
-                           src_epsg="epsg:4326"):
-    transformer = Transformer.from_crs(src_epsg, "epsg:4326", always_xy=True)
+from pyproj import Transformer
+import os
+import rasterio
+
+def raster_classifications(coordinates,
+                           raster_path,
+                           bands,
+                           band_names,
+                           species_name,
+                           geo_folder,
+                           legend_map=None,
+                           src_epsg="EPSG:4326"):
+    # Transformer WGS84 → CRS du raster
+    with rasterio.open(raster_path) as src:
+        dst_crs = src.crs.to_string()
+    transformer = Transformer.from_crs(src_epsg, dst_crs, always_xy=True)
+
     results = {}
     species_dir = os.path.join(geo_folder, species_name)
     os.makedirs(species_dir, exist_ok=True)
 
     with rasterio.open(raster_path) as src:
         for lat, lon in coordinates:
-            row, col = src.index(lon, lat)
+            # → reprojection
+            x, y = transformer.transform(lon, lat)
+
+            # → indices ligne/colonne dans la grille du raster
+            row, col = src.index(x, y)
+
             vals = {}
             for b_idx, name in zip(bands, band_names):
                 try:
-                    raw = int(src.read(b_idx)[row, col])
-                except:
+                    raw_val = src.read(b_idx)[row, col]
+                    raw = int(raw_val)
+                except Exception:
                     raw = None
+
                 if legend_map and b_idx in legend_map:
+                    # lookup dans la légende convertie
                     vals[name] = legend_map[b_idx].get(raw)
                 else:
                     vals[name] = raw
+
             results[(lat, lon)] = vals
 
+    # écriture du fichier txt
     out_txt = os.path.join(species_dir, "raster_classes.txt")
     with open(out_txt, "w", encoding="utf-8") as f:
         f.write("Latitude,Longitude," + ",".join(band_names) + "\n")
         for (lat, lon), vals in results.items():
-            line = ",".join(str(vals[n]) if vals[n] is not None else "" for n in band_names)
+            line = ",".join(str(vals.get(n, "")) if vals.get(n) is not None else ""
+                            for n in band_names)
             f.write(f"{lat},{lon},{line}\n")
 
     return results
