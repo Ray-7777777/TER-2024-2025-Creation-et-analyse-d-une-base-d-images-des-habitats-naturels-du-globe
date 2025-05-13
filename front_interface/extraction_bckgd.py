@@ -111,7 +111,7 @@ def extract_background(image_path, txt_file_path, output_dir, species,
         species_output_dir = os.path.join(output_dir, species)
         os.makedirs(species_output_dir, exist_ok=True)
         base_name = os.path.splitext(os.path.basename(image_path))[0]
-        region_filename = f"{base_name}_bg_{regions_extracted+1}.jpeg"
+        region_filename = f"{base_name}_{regions_extracted+1}.jpeg"
         region_path = os.path.join(species_output_dir, region_filename)
         cv2.imwrite(region_path, region)
         print(f"Région de fond sauvegardée dans : {region_path}")

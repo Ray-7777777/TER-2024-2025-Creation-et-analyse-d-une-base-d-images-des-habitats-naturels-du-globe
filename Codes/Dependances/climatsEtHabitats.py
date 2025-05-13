@@ -1,4 +1,5 @@
 import os
+import folium
 import geopandas as gpd
 import pandas as pd
 from shapely.geometry import Point
@@ -160,3 +161,105 @@ def ecosystemes(coordinates, dossier_raster, species_name, dataset_dir, src_epsg
                 # Concaténer les informations de tous les rasters pour cette coordonnée
                 line = f"Coordinates {coords}: " + ", ".join(data["inside_rasters"])
                 file.write(line + "\n")
+
+def biomes(coordinates, dossier_biomes_higgins, species_name, dataset_dir, src_epsg='epsg:4326'):
+    species_dir = os.path.join(dataset_dir, species_name)
+    results = {}
+
+    # Charger le fichier XML contenant les descriptions des efg_code
+    xml_file = os.path.join(dossier_biomes_higgins, '..', 'map-details.xml')
+    tree = ET.parse(xml_file)
+    root = tree.getroot()
+
+    efg_map = {}
+    for map_element in root.findall('Maps/Map'):
+        efg_code = map_element.get('efg_code')
+        description = map_element.find('Functional_group').text
+        efg_map[efg_code] = description
+
+    # Initialisation des résultats
+    for coords in coordinates:
+        results[coords] = {"inside_rasters": []}
+
+    # Définir la transformation de coordonnées
+    transformer = Transformer.from_crs(src_epsg, 'epsg:4326', always_xy=True)
+
+    # Parcourir les fichiers raster dans le dossier
+    for fichier in os.listdir(dossier_biomes_higgins):
+        if not fichier.endswith('.nc'):  # Vérifie si c'est bien un fichier .asc
+            continue
+        
+        raster_file = os.path.join(dossier_biomes_higgins, fichier)
+
+        # Extraction du code efg_code à partir du nom du fichier
+        efg_code = '.'.join(fichier.split('.')[:2]) 
+
+        # Vérifier si l'efg_code est dans le XML
+        description = efg_map.get(efg_code, "Unknown Group")
+
+        # Ouvrir le raster .asc avec Rasterio
+        with rasterio.open(raster_file) as src:
+            for coords in coordinates:
+                # Transformation des coordonnées
+                if src_epsg != 'epsg:4326':
+                    lon, lat = transformer.transform(coords[0], coords[1])
+                else:
+                    lat, lon = coords
+
+                point = Point(lon, lat)
+
+                # Vérifier si le point est dans les limites du raster
+                if not (src.bounds.left <= point.x <= src.bounds.right and src.bounds.bottom <= point.y <= src.bounds.top):
+                    continue  
+
+                # Convertir les coordonnées en indices de raster
+                row, col = src.index(point.x, point.y)
+
+                # Lire la valeur du raster
+                value = src.read(1)[row, col]
+
+                # Vérifier les valeurs et ajouter à la liste
+                if value == 1 or value == 2:
+                    occurrence_type = "Major occurrence" if value == 1 else "Minor occurrence"
+                    results[coords]["inside_rasters"].append(f"{description}, {occurrence_type}")
+
+    # Sauvegarde des résultats
+    output_file = os.path.join(species_dir, '/Biomes/Higgins_data.txt')
+    with open(output_file, 'w') as file:
+        for coords, data in results.items():
+            if data["inside_rasters"]:
+                line = f"Coordinates {coords}: " + ", ".join(data["inside_rasters"])
+                file.write(line + "\n")
+
+def carte(dataset_dir):
+    # Créer une carte centrée sur une zone approximative
+    m = folium.Map(location=[0, 0], zoom_start=2)
+
+    # Parcourir chaque dossier d'espèce
+    for species_name in os.listdir(dataset_dir):
+        species_dir = os.path.join(dataset_dir, species_name)
+        coordinates_file = os.path.join(species_dir, 'coordinates.txt')
+
+        if os.path.isfile(coordinates_file):
+            with open(coordinates_file, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("Coordinates:"):
+                        try:
+                            # Extraction des coordonnées
+                            _, coords = line.split(":")
+                            lat, lon = map(float, coords.split(','))
+
+                            # Ajouter un marqueur sur la carte
+                            folium.Marker(
+                                location=[lat, lon], 
+                                popup=species_name, 
+                                icon=folium.Icon(color="blue")
+                            ).add_to(m)
+
+                        except ValueError as e:
+                            print(f"Erreur en lisant les coordonnées pour {species_name}: {line} ({e})")
+
+        # Enregistrer la carte et l'ouvrir dans un navigateur
+        m.save(f"{species_dir}/carte_oiseaux.html")
+        print("Carte enregistrée sous 'carte_oiseaux.html'")

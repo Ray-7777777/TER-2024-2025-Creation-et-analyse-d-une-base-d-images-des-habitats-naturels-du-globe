@@ -140,14 +140,24 @@ def download_images_for_species(taxon_id, species_name):
             except Exception as e:
                 print(f"Erreur lors du téléchargement de l'image {i+1} pour {species_name}: {e}")
                 continue  # Passer à l'image suivante même en cas d'erreur
+    
+    if coordinates:
+        coords_txt = os.path.join(dataset_dir, f"{species_name}_coordinates.txt")
+        with open(coords_txt, "w", encoding="utf-8") as f:
+            f.write("latitude,longitude\n")  # entête facultative
+            for lat, lon in coordinates:
+                f.write(f"{lat},{lon}\n")
+        print(f"Fichier de coordonnées créé : {coords_txt}")
+    else:
+        print("Aucune coordonnée à enregistrer.")
 
     # Appel des fonctions pour récupérer le climat, le(s) ecosystème(s), l'habitat et l'écorégion associés aux coordonnées de l'observation
-    if coordinates:
+    """if coordinates:
         climatsEtHabitats.climats(coordinates, shapefile_climats, species_name, dataset_dir)
         climatsEtHabitats.ecoregions(coordinates, shapefile_ecoregions, species_name, dataset_dir)
         climatsEtHabitats.ecosystemes(coordinates, raster_ecosystemes, species_name, dataset_dir)
-
-    climatsEtHabitats.avonet_habitats(avonet, sheet_name, species_name, dataset_dir)
+        #climatsEtHabitats.carte(dataset_dir)
+    climatsEtHabitats.avonet_habitats(avonet, sheet_name, species_name, dataset_dir)"""
     
 
 # Récupérer les premières `num_species` espèces d'oiseaux

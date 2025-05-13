@@ -59,27 +59,27 @@ def extract_embedding(path, pooling='avg'):
 
 # 5. Boucle principale avec gestion KeyboardInterrupt et progression
 def save_embeddings(folder, out_csv, pooling='avg'):
-    cols = ['image_name'] + [f'f{i:03d}' for i in range(512)]
+    cols = ['prefix'] + [f'f{i:03d}' for i in range(512)]
     rows = []
-    image_files = []
-    for _, _, files in os.walk(folder):
-        for f in files:
-            if f.lower().endswith(('.jpg','jpeg','png')):
-                image_files.append(f)
+    image_files = [
+        f for _, _, files in os.walk(folder)
+          for f in files
+          if f.lower().endswith(('.jpg','jpeg','png'))
+    ]
     total = len(image_files)
     print(f"{total} images à traiter…")
 
     try:
         for idx, fname in enumerate(image_files, 1):
-            base, _ = os.path.splitext(fname)
-            parts   = base.split('_')
-            species = parts[0]
-            img_id  = parts[-1]
-            name    = f"{species}_{img_id}"
-
             path = os.path.join(folder, fname)
             emb  = extract_embedding(path, pooling)
-            rows.append([name] + emb.tolist())
+
+            # ─── ici, on calcule le préfixe en 1 ligne ───
+            prefix = os.path.splitext(fname)[0].rsplit('_', 1)[0]
+            #    └──────────── stem sans extension ─────────┘
+            #           └─ on enlève tout ce qui suit le dernier '_' ┘
+
+            rows.append([prefix] + emb.tolist())
 
             if idx % 100 == 0 or idx == total:
                 print(f"  → {idx}/{total} images traitées")
@@ -87,13 +87,12 @@ def save_embeddings(folder, out_csv, pooling='avg'):
     except KeyboardInterrupt:
         print(f"\nInterrompu après {idx}/{total} images. Sauvegarde partielle…")
 
-    # Sauvegarde finale (ou partielle)
+    # Sauvegarde finale
     df = pd.DataFrame(rows, columns=cols)
     df.to_csv(out_csv, index=False)
     print(f"Embeddings sauvegardés ({len(rows)}/{total}) dans '{out_csv}'.")
 
 # 6. Script principal
-
 image_folder = '../../Donnees/oiseaux_extraits'
 output_csv   = '../../Donnees/birds_conv2_features.csv'
 

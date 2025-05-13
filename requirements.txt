@@ -7,3 +7,4 @@ requests
 torch
 Pillow
 openpyxl
+folium

@@ -1,0 +1,61 @@
+file title  : Holdridge Life Zones under "normal" climate conditions
+data type   : byte
+file type   : binary
+columns     :  720
+rows        :  360
+ref. system : latlong
+ref. units  : deg
+unit dist.  :  1
+min. X      : -180
+max. X      :  180
+min. Y      : -90
+max. Y      :  90
+pos'n error : unknown
+resolution  :  .5
+min. value  :  0
+max. value  :  37
+value units : unspecified
+value error : unknown
+flag value  : none
+flag def'n  : none
+legend cats : 39
+Category  0 :   0  Water
+Category  1 :   1  Polar desert
+Category  2 :   2  Subpolar dry tundra
+Category  3 :   3  Subpolar moist tundra
+Category  4 :   4  Subpolar wet tundra
+Category  5 :   5  Subpolar rain tundra
+Category  6 :   6  Boreal desert
+Category  7 :   7  Boreal dry scrub
+Category  8 :   8  Boreal moist forest
+Category  9 :   9  Boreal wet forest
+Category 10 :  10  Boreal rain forest
+Category 11 :  11  Cool temperate desert
+Category 12 :  12  Cool temperate desert scrub
+Category 13 :  13  Cool temperate steppe
+Category 14 :  14  Cool temperate moist forest
+Category 15 :  15  Cool temperate wet forest
+Category 16 :  16  Cool temperate rain forest
+Category 17 :  17  Warm temperate desert
+Category 18 :  18  Warm temperate desert scrub
+Category 19 :  19  Warm temperate thorn scrub
+Category 20 :  20  Warm temperate dry forest
+Category 21 :  21  Warm temperate moist forest
+Category 22 :  22  Warm temperate wet forest
+Category 23 :  23  Warm temperate rain forest
+Category 24 :  24  Subtropical desert
+Category 25 :  25  Subtropical desert scrub
+Category 26 :  26  Subtropical thorn woodland
+Category 27 :  27  Subtropical dry forest
+Category 28 :  28  Subtropical moist forest
+Category 29 :  29  Subtropical wet forest
+Category 30 :  30  Subtropical rain forest
+Category 31 :  31  Tropical desert
+Category 32 :  32  Tropical desert scrub
+Category 33 :  33  Tropical thorn woodland
+Category 34 :  34  Tropical very dry forest
+Category 35 :  35  Tropical dry forest
+Category 36 :  36  Tropical moist forest
+Category 37 :  37  Tropical wet forest
+Category 38 :  38  Tropical rain forest
+
