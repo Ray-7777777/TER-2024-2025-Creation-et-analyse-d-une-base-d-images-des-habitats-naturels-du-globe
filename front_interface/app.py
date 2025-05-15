@@ -18,6 +18,7 @@ import streamlit.components.v1 as components
 import geopandas as gpd
 from shapely.geometry import Point
 from folium import Element
+from PIL import Image
 
 # Import de la fonction d'extraction du background
 from extraction_bckgd import extract_background
@@ -188,7 +189,7 @@ model = DetectMultiBackend('./best.pt', device=torch.device('cpu'))
 if "images_info" not in st.session_state:
     st.session_state["images_info"] = []
 
-tab_detection, tab_background, tab_classification, tab_similarites, tab_cartes = st.tabs(["Détection", "Background", "Classification", "Similarités", "Données Géographiques"])
+tab_detection, tab_background, tab_classification, tab_similarites, tab_cartes, tab_metriques = st.tabs(["Détection", "Background", "Classification", "Similarités", "Données Géographiques", "Métriques"])
 
 # ---------- Onglet Détection ----------
 with tab_detection:
@@ -413,6 +414,37 @@ with tab_similarites:
             st.pyplot(fig)
         else:
             st.error(f"Fichier non trouvé : {os.path.basename(csv_conf_mat)}")
+
+with tab_metriques:
+    st.header("Métriques d'entraînement du modèle YOLOv5 pour détection d'oiseaux")
+    
+    # Chemin vers l'image des résultats
+    results_path = os.path.join('metriques', 'results.png')
+    
+    if os.path.exists(results_path):
+        # Charger et afficher l'image
+        results_img = Image.open(results_path)
+        st.image(results_img, caption="Métriques d'entraînement du modèle YOLOv5", use_container_width=True)
+        
+        # Bouton de téléchargement
+        with open(results_path, 'rb') as f:
+            st.download_button(
+                label="Télécharger les métriques",
+                data=f,
+                file_name="results.png",
+                mime="image/png"
+            )
+        
+        # Explication des métriques
+        st.markdown("""
+        **Explication des métriques :**
+        - **Loss (train/val)**: Évolution des pertes pendant l'entraînement et la validation
+        - **mAP@0.5**: Précision moyenne à 50% d'IoU
+        - **Precision**: Ratio des détections correctes parmi toutes les détections
+        - **Recall**: Ratio des vrais positifs détectés parmi tous les vrais positifs
+        """)
+    else:
+        st.warning("Fichier results.png introuvable. Veuillez vérifier qu'il se trouve dans le dossier yolov5.")
 
 
 ECOREGIONS_SHP      = "../Donnees/Ecoregions/wwf_terr_ecos.shp"
