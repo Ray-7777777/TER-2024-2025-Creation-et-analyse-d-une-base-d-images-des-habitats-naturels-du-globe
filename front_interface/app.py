@@ -1,5 +1,9 @@
 import sys, os
 
+import pathlib
+# Ça redirige toute instantiation de PosixPath vers pathlib.Path (WindowsPath)
+pathlib.PosixPath = pathlib.Path
+
 yolo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), 'yolov5'))
 sys.path.insert(0, yolo_root)
 
@@ -180,7 +184,7 @@ for folder in [UPLOAD_FOLDER, DETECTED_FOLDER, NOT_DETECTED_FOLDER, BACKGROUND_F
     os.makedirs(folder, exist_ok=True)
 
 model = DetectMultiBackend('./best.pt', device=torch.device('cpu'))
-
+blur_model = DetectMultiBackend('./best_flou.pt', device=torch.device('cpu'))
 ############################
 # Interface Streamlit avec onglets
 ############################
@@ -323,34 +327,82 @@ with tab_background:
 
 # ---------- Onglet Classification (Flou vs Nette) ----------
 with tab_classification:
-    st.header("Classification : Flou ou Nette")
+    st.header("Classification : Flou ou Nette (Deep)")
     if not st.session_state["images_info"]:
-        st.warning("Aucune image n'a été téléversée dans l'onglet Détection.")
+        st.warning("Aucune image n'a été téléversée…")
     else:
-        # Sliders pour ajuster les seuils
-        threshold_sobel = st.slider("Seuil Sobel", min_value=0, max_value=3000, value=100, step=1)
-        threshold_fft = st.slider("Seuil FFT", min_value=0.0, max_value=10.0, value=3.0, step=0.1)
-        
-        st.write("Les images seront analysées avec ces seuils pour déterminer si elles sont floues ou nettes.")
-        
         for info in st.session_state["images_info"]:
-            st.subheader(f"Classification pour : {info['filename']}")
-            image_path = info["original_path"]
-            blurry, sobel_val, fft_val = is_blurry(image_path, threshold_sobel, threshold_fft)
-            
-            # Charger l'image pour l'annotation
-            image = cv2.imread(image_path)
-            if image is None:
-                st.error(f"Erreur pour l'image {info['filename']}")
-                continue
-            # Ajouter le texte des métriques sur l'image
-            annotated = add_text_with_black_background(image.copy(), sobel_val, fft_val)
-            
-            classification = "Floue" if blurry else "Nette"
-            st.write(f"**Résultat :** {classification}")
-            st.write(f"Sobel Variance: {sobel_val:.2f}, FFT Metric: {fft_val:.2f}")
-            annotated_rgb = cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB)
-            st.image(annotated_rgb, caption=f"{info['filename']} - {classification}", use_container_width=True)
+            st.subheader(info["filename"])
+            img_bgr = cv2.imread(info["original_path"])
+            h0, w0 = img_bgr.shape[:2]
+            img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+            img_resized = cv2.resize(img_rgb, (640, 640))
+            tensor = torch.from_numpy(img_resized).permute(2,0,1).float()/255.0
+            tensor = tensor.unsqueeze(0)
+
+            # 1) Inference YOLO
+            pred = blur_model(tensor)
+            det = non_max_suppression(pred, conf_thres=0.05, iou_thres=0.45)[0]
+
+            # 2) Remise à l’échelle et annotation
+            blur_detected = False
+            for *xyxy, conf, cls in det:
+                # xyxy sont en 0–640
+                x1, y1, x2, y2 = (xyxy[i].item() for i in range(4))
+                # remap sur taille originale
+                x1 = int(x1 * w0 / 640);  y1 = int(y1 * h0 / 640)
+                x2 = int(x2 * w0 / 640);  y2 = int(y2 * h0 / 640)
+                blur_detected = True
+                # rectangle et label
+                cv2.rectangle(img_bgr, (x1,y1),(x2,y2),(0,0,255),2)
+                cv2.putText(img_bgr, f"Flou {conf:.2f}", (x1,y1-10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,0,255),2)
+
+            # 3) Affichage
+            status = "Flou détecté 📦" if blur_detected else "Aucun flou"
+            st.write(f"**Résultat Deep :** {status}")
+            st.image(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB),
+                     use_container_width=True)
+
+            # 4) (optionnel) proposer les crops
+            if blur_detected:
+                crops = []
+                # on énumère correctement chaque détection
+                for i, box in enumerate(det):          
+                    # box est un tensor de 6 éléments [x1,y1,x2,y2,conf,cls]
+                    x1, y1, x2, y2, conf, cls_idx = box  
+
+                    # 1) remise à l’échelle
+                    x1 = int(x1 * w0 / 640)
+                    y1 = int(y1 * h0 / 640)
+                    x2 = int(x2 * w0 / 640)
+                    y2 = int(y2 * h0 / 640)
+
+                    # 2) clamp dans l’image
+                    x1, y1 = max(0, x1), max(0, y1)
+                    x2, y2 = min(w0, x2), min(h0, y2)
+
+                    # 3) ignore les bboxes invalides
+                    if x2 <= x1 or y2 <= y1:
+                        st.warning(f"Ignoré bbox vide #{i} pour {info['filename']}")
+                        continue
+
+                    # extraction du crop de la zone floue
+                    crop = img_bgr[y1:y2, x1:x2]
+                    base, ext = os.path.splitext(info['filename'])   # "Acanthiza_pusilla_5", ".jpg"
+                    cname = f"{base}_blur_{i}{ext}"                   # "Acanthiza_pusilla_5_blur_0.jpg"
+                    out_path = os.path.join(blurry_folder, cname)
+                    success = cv2.imwrite(out_path, crop)
+                    if not success or not os.path.exists(out_path):
+                        st.warning(f"Échec écriture crop #{i} pour {info['filename']}")
+                        continue
+
+                    crops.append(out_path)
+
+                if crops:
+                    st.write("### Zones floues extraites")
+                    for path in crops:
+                        st.image(path, width=150)
 
 # ---------- Onglet Similarités ----------
 with tab_similarites:
