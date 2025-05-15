@@ -10,3 +10,12 @@ seaborn
 matplotlib
 ultralytics
 yolov5
+geopandas
+shapely
+rasterio
+pyproj
+torchvision
+openpyxl
+folium
+werkzeug
+scikit-learn
