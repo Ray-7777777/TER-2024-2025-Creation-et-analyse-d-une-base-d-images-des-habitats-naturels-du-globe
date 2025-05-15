@@ -1,0 +1,12 @@
+streamlit
+torch
+opencv-python
+pandas
+requests
+Pillow
+numpy
+scipy
+seaborn
+matplotlib
+ultralytics
+yolov5
