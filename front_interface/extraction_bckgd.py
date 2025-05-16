@@ -3,34 +3,32 @@ import cv2
 import numpy as np
 import random
 
-def extract_background(image_path, txt_file_path, output_dir, species, 
-                       min_region_size=0.01, min_pixel_threshold=0.01, max_ignored_regions=5):
-    """
-    Extrait les backgrounds d'une image en ignorant les régions masquées par les bounding boxes.
-    Utilise deux masques : permanent_mask (zones des objets) et visited_mask (zones déjà extraites).
-
-    Args:
-        image_path (str): Chemin vers l'image.
-        txt_file_path (str): Chemin vers le fichier TXT contenant les bounding boxes (format : class, confidence, x1, y1, x2, y2 en valeurs absolues).
-        output_dir (str): Dossier racine de sortie pour les backgrounds.
-        species (str): Nom de l'espèce (sera utilisé pour créer un sous-dossier).
-        min_region_size (float): Fraction minimale de la surface totale de l'image pour accepter une région.
-        min_pixel_threshold (float): Fraction minimale de pixels non masqués restants pour continuer l'extraction.
-        max_ignored_regions (int): Nombre maximal de régions invalides avant d'arrêter.
-    
-    Returns:
-        List[str]: Liste des chemins vers les images de background extraites.
-    """
+def extract_background(image_path, txt_file_path, output_dir, species):
+    """Extrait les backgrounds d'une image."""
+    # Validation basique
     if not os.path.exists(image_path):
-        print(f"Erreur : L'image {image_path} est introuvable.")
-        return []
-    if not os.path.exists(txt_file_path):
-        print(f"Erreur : Le fichier texte {txt_file_path} est introuvable.")
+        print(f"Error: Image source {image_path} introuvable")
         return []
 
     image = cv2.imread(image_path)
     if image is None:
-        print(f"Erreur : Impossible de charger l'image {image_path}")
+        print(f"Error: Impossible de lire l'image {image_path}")
+        return []
+
+    # Create output directory
+    species_output_dir = os.path.join(output_dir, species)
+    os.makedirs(species_output_dir, exist_ok=True)
+
+    if txt_file_path is None or not os.path.exists(txt_file_path):
+        # Save full image as background
+        base_name = os.path.splitext(os.path.basename(image_path))[0]
+        output_path = os.path.join(species_output_dir, f"{base_name}_full.jpeg")
+        cv2.imwrite(output_path, image)
+        return [output_path]
+
+    # Si pas de détections valides, retourner
+    if txt_file_path is None or not os.path.exists(txt_file_path) or os.path.getsize(txt_file_path) == 0:
+        print(f"Info: Pas de détections valides pour {image_path}")
         return []
 
     image_height, image_width, _ = image.shape
@@ -64,11 +62,11 @@ def extract_background(image_path, txt_file_path, output_dir, species,
     extracted_paths = []
     regions_extracted = 0
     ignored_regions = 0
-    min_area = int(min_region_size * image_width * image_height)
+    min_area = int(0.01 * image_width * image_height)
 
     while np.any((permanent_mask == 0) & (visited_mask == 0)):
         non_masked_indices = np.argwhere((permanent_mask == 0) & (visited_mask == 0))
-        if len(non_masked_indices) < min_pixel_threshold * image_width * image_height:
+        if len(non_masked_indices) < 0.01 * image_width * image_height:
             print("Proportion de pixels non masqués trop faible. Arrêt.")
             break
 
@@ -101,7 +99,7 @@ def extract_background(image_path, txt_file_path, output_dir, species,
         if region_width <= 0 or region_height <= 0 or region_area < min_area:
             print(f"Région invalide détectée ({region_width}x{region_height}). Ignorée.")
             ignored_regions += 1
-            if ignored_regions >= max_ignored_regions:
+            if ignored_regions >= 5:
                 print("Trop de régions ignorées. Arrêt de l'extraction.")
                 break
             continue
@@ -120,4 +118,3 @@ def extract_background(image_path, txt_file_path, output_dir, species,
 
     print(f"Extraction terminée. {regions_extracted} régions de fond sauvegardées.")
     return extracted_paths
-
