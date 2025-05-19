@@ -5,6 +5,13 @@ rasterio
 pyproj
 requests
 torch
+torchvision
 Pillow
 openpyxl
 folium
+gitpython
+seaborn
+numpy
+scikit-learn
+ultralytics
+opencv-python-headless

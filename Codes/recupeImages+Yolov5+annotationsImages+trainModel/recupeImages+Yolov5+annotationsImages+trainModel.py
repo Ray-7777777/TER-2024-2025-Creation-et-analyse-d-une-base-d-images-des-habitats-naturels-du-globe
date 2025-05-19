@@ -9,8 +9,8 @@ dataset_dir = 'birds_dataset'
 os.makedirs(dataset_dir, exist_ok=True)
 
 # Nombre d'espèces et d'images par espèce
-num_species = 10
-num_images_per_species = 1000
+num_species = 2
+num_images_per_species = 3
 
 # Fonction pour récupérer les espèces d'oiseaux
 def get_bird_species():

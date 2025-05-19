@@ -1,9 +1,10 @@
+#!/usr/bin/env python3
 import os
 import cv2
 import numpy as np
 import random
 
-def extract_background(image_path, txt_file_path, output_dir, species, 
+def extract_background(image_path, txt_file_path, output_dir, species,
                        min_region_size=0.01, min_pixel_threshold=0.01, max_ignored_regions=5):
     """
     Extrait les backgrounds d'une image en ignorant les régions masquées par les bounding boxes.
@@ -11,13 +12,14 @@ def extract_background(image_path, txt_file_path, output_dir, species,
 
     Args:
         image_path (str): Chemin vers l'image.
-        txt_file_path (str): Chemin vers le fichier TXT contenant les bounding boxes YOLO (format : class, x_center, y_center, width, height).
+        txt_file_path (str): Chemin vers le fichier TXT contenant les bounding boxes YOLO
+                             (format : class, x_center, y_center, width, height, [conf]).
         output_dir (str): Dossier racine de sortie pour les backgrounds.
         species (str): Nom de l'espèce (sera utilisé pour créer un sous-dossier).
         min_region_size (float): Fraction minimale de la surface totale de l'image pour accepter une région.
         min_pixel_threshold (float): Fraction minimale de pixels non masqués restants pour continuer l'extraction.
         max_ignored_regions (int): Nombre maximal de régions invalides avant d'arrêter.
-    
+
     Returns:
         List[str]: Liste des chemins vers les images de background extraites.
     """
@@ -33,93 +35,125 @@ def extract_background(image_path, txt_file_path, output_dir, species,
         print(f"Erreur : Impossible de charger l'image {image_path}")
         return []
 
-    image_height, image_width, _ = image.shape
-    print(f"Traitement de l'image : {image_path} (taille={image_width}x{image_height})")
+    h, w, _ = image.shape
+    print(f"Traitement de l'image : {image_path} (taille={w}x{h})")
 
-    # Initialisation des masques
-    permanent_mask = np.zeros((image_height, image_width), dtype=np.uint8)
-    visited_mask = np.zeros((image_height, image_width), dtype=np.uint8)
+    permanent_mask = np.zeros((h, w), dtype=np.uint8)
+    visited_mask  = np.zeros((h, w), dtype=np.uint8)
 
-    # Lecture du fichier TXT et remplissage du permanent_mask
-    with open(txt_file_path, 'r') as file:
-        for line in file:
-            try:
-                class_id, x_center, y_center, width, height = map(float, line.strip().split())
-            except Exception as e:
-                print("Erreur lors de la lecture de la ligne:", line)
+    # Lecture et masquage des bounding boxes
+    with open(txt_file_path, 'r') as f:
+        for line in f:
+            parts = line.strip().split()
+            if len(parts) < 5:
+                print("Ligne invalide dans le TXT :", line)
                 continue
-            x_center = int(x_center * image_width)
-            y_center = int(y_center * image_height)
-            width = int(width * image_width)
-            height = int(height * image_height)
-            margin_w = int(width * 0.15)
-            margin_h = int(height * 0.15)
-            width += 2 * margin_w
-            height += 2 * margin_h
-            x1 = max(0, x_center - width // 2)
-            y1 = max(0, y_center - height // 2)
-            x2 = min(image_width - 1, x_center + width // 2)
-            y2 = min(image_height - 1, y_center + height // 2)
-            print(f"Bounding Box: x1={x1}, y1={y1}, x2={x2}, y2={y2}")
+            class_id, x_c, y_c, bw, bh = map(float, parts[:5])
+            cx = int(x_c * w)
+            cy = int(y_c * h)
+            bw = int(bw * w)
+            bh = int(bh * h)
+            # ajoute 15% de marge
+            mw = int(bw * 0.15)
+            mh = int(bh * 0.15)
+            bw += 2*mw; bh += 2*mh
+            x1 = max(0, cx - bw//2); y1 = max(0, cy - bh//2)
+            x2 = min(w-1, cx + bw//2); y2 = min(h-1, cy + bh//2)
+            print(f"  Bounding Box: x1={x1}, y1={y1}, x2={x2}, y2={y2}")
             permanent_mask[y1:y2+1, x1:x2+1] = 255
 
     extracted_paths = []
     regions_extracted = 0
-    ignored_regions = 0
-    min_area = int(min_region_size * image_width * image_height)
+    ignored = 0
+    min_area = int(min_region_size * w * h)
 
-    while np.any((permanent_mask == 0) & (visited_mask == 0)):
-        non_masked_indices = np.argwhere((permanent_mask == 0) & (visited_mask == 0))
-        if len(non_masked_indices) < min_pixel_threshold * image_width * image_height:
+    # Extraction des régions non masquées
+    while True:
+        # indices des pixels libres
+        free = np.argwhere((permanent_mask==0) & (visited_mask==0))
+        if free.size == 0:
+            break
+        if free.shape[0] < min_pixel_threshold * w * h:
             print("Proportion de pixels non masqués trop faible. Arrêt.")
             break
 
-        random_index = random.choice(non_masked_indices)
-        start_x, start_y = random_index[1], random_index[0]
-        print(f"Point aléatoire sélectionné : ({start_x}, {start_y})")
-        
-        top, bottom, left, right = start_y, start_y, start_x, start_x
-        expanded = True
-        while expanded:
-            expanded = False
-            if top > 0 and permanent_mask[top-1, left:right+1].max() == 0:
-                top -= 1
-                expanded = True
-            if bottom < image_height - 1 and permanent_mask[bottom+1, left:right+1].max() == 0:
-                bottom += 1
-                expanded = True
-            if left > 0 and permanent_mask[top:bottom+1, left-1].max() == 0:
-                left -= 1
-                expanded = True
-            if right < image_width - 1 and permanent_mask[top:bottom+1, right+1].max() == 0:
-                right += 1
-                expanded = True
+        y0, x0 = random.choice(free)
+        print(f"  Point de départ : ({x0},{y0})")
+        top, bottom, left, right = y0, y0, x0, x0
+        expanding = True
+        while expanding:
+            expanding = False
+            if top>0    and permanent_mask[top-1,left:right+1].max()==0:
+                top -=1; expanding=True
+            if bottom<h-1 and permanent_mask[bottom+1,left:right+1].max()==0:
+                bottom +=1; expanding=True
+            if left>0   and permanent_mask[top:bottom+1,left-1].max()==0:
+                left -=1; expanding=True
+            if right<w-1 and permanent_mask[top:bottom+1,right+1].max()==0:
+                right +=1; expanding=True
 
-        region_width = right - left + 1
-        region_height = bottom - top + 1
-        region_area = region_width * region_height
-        print(f"Région détectée : top={top}, bottom={bottom}, left={left}, right={right}, surface={region_area}")
+        rw, rh = right-left+1, bottom-top+1
+        area = rw * rh
+        print(f"  Région : top={top}, bottom={bottom}, left={left}, right={right}, surface={area}")
 
-        if region_width <= 0 or region_height <= 0 or region_area < min_area:
-            print(f"Région invalide détectée ({region_width}x{region_height}). Ignorée.")
-            ignored_regions += 1
-            if ignored_regions >= max_ignored_regions:
-                print("Trop de régions ignorées. Arrêt de l'extraction.")
+        if rw<=0 or rh<=0 or area < min_area:
+            print(f"  Région invalide ({rw}x{rh}), ignorée.")
+            ignored +=1
+            if ignored >= max_ignored_regions:
+                print("  Trop de régions ignorées. Arrêt.")
                 break
             continue
 
-        visited_mask[top:bottom+1, left:right+1] = 255
+        # marquer comme visité et sauvegarder
+        visited_mask[top:bottom+1,left:right+1] = 255
         region = image[top:bottom+1, left:right+1]
-        species_output_dir = os.path.join(output_dir, species)
-        os.makedirs(species_output_dir, exist_ok=True)
-        base_name = os.path.splitext(os.path.basename(image_path))[0]
-        region_filename = f"{base_name}_bg_{regions_extracted+1}.jpeg"
-        region_path = os.path.join(species_output_dir, region_filename)
-        cv2.imwrite(region_path, region)
-        print(f"Région de fond sauvegardée dans : {region_path}")
-        extracted_paths.append(region_path)
-        regions_extracted += 1
+        dest = os.path.join(output_dir, species)
+        os.makedirs(dest, exist_ok=True)
+        base = os.path.splitext(os.path.basename(image_path))[0]
+        out_name = f"{base}_bg_{regions_extracted+1}.jpeg"
+        out_path = os.path.join(dest, out_name)
+        cv2.imwrite(out_path, region)
+        print(f"  Region sauvegardée : {out_path}")
+        extracted_paths.append(out_path)
+        regions_extracted +=1
 
-    print(f"Extraction terminée. {regions_extracted} régions de fond sauvegardées.")
+    print(f"Extraction terminée. {regions_extracted} régions sauvegardées.")
     return extracted_paths
 
+
+if __name__ == "__main__":
+    images_folder = "../Donnees/birds_dataset"
+    bbox_folder   = "Dependances/runs/detect"
+    output_dir    = "../Donnees/backgrounds_extracted"
+
+    # Debug et création du dossier de sortie
+    print("DEBUG ▶ CWD           =", os.getcwd())
+    print("DEBUG ▶ images_folder =", images_folder, "→", os.path.isdir(images_folder))
+    print("DEBUG ▶ bbox_folder   =", bbox_folder,   "→", os.path.isdir(bbox_folder))
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Parcours des images
+    for root, dirs, files in os.walk(images_folder):
+        for fname in files:
+            if not fname.lower().endswith(('.jpg','.jpeg','.png')):
+                continue
+            image_path = os.path.join(root, fname)
+            species    = os.path.basename(os.path.dirname(image_path))
+            base       = os.path.splitext(fname)[0]
+            txt_path   = os.path.join(bbox_folder, species, "labels", base + ".txt")
+
+            if not os.path.isfile(txt_path):
+                print(f"Erreur : Le fichier texte {txt_path} est introuvable.")
+                print(f"0 fonds extraits pour {fname} ({species})")
+                continue
+
+            extracted = extract_background(
+                image_path=image_path,
+                txt_file_path=txt_path,
+                output_dir=output_dir,
+                species=species,
+                min_region_size=0.01,
+                min_pixel_threshold=0.01,
+                max_ignored_regions=5
+            )
+            print(f"{len(extracted)} fonds extraits pour {fname} ({species})")

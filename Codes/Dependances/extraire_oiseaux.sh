@@ -1,67 +1,63 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")"
+echo "🔧 extraire_oiseaux.sh démarré dans $(pwd)"
 
-# Dossier de sortie pour les images recadrées
 output_dir="/Donnees/oiseaux_extraits"
-
-# Créer le dossier de sortie s'il n'existe pas déjà
 mkdir -p "$output_dir"
 
-# Lire chaque dossier dans le dossier 'detect'
-for dir in runs/detect/*; do
-    label_dir="$dir/labels"
+# active le "nullglob" pour que *.txt vide ne renvoie pas le motif brut
+shopt -s nullglob
 
-    # Lire chaque fichier de labels dans le dossier correspondant
-    for label_file in "$label_dir"/*.txt; do
-        # Tenter de trouver l'image avec .jpg puis .jpeg
-        image_file="/Donnees/birds_dataset/${dir##*/}/$(basename "$label_file" .txt).jpg"
-        if [[ ! -f "$image_file" ]]; then
-            image_file="/Donnees/birds_dataset/${dir##*/}/$(basename "$label_file" .txt).jpeg"
-        fi
+for run_dir in runs/detect/*/; do
+  # ex. run_dir="runs/detect/Anas_platyrhynchos5/"
+  runName=$(basename "$run_dir")
+  # enlève tout suffixe numérique
+  className="${runName%%[0-9]*}"
+  label_files=( "$run_dir/labels/"*.txt )
+  if (( ${#label_files[@]} == 0 )); then
+    echo "⚠️  Aucun label pour la classe '$runName', on passe."
+    continue
+  fi
 
-        # Lire chaque ligne du fichier de labels
-        while read -r line; do
-            # Extraire les informations de la bounding box
-            class_id=$(echo "$line" | awk '{print $1}')
-            x_center=$(echo "$line" | awk '{print $2}')
-            y_center=$(echo "$line" | awk '{print $3}')
-            width=$(echo "$line" | awk '{print $4}')
-            height=$(echo "$line" | awk '{print $5}')
-
-            # Obtenir les dimensions de l'image originale
-            img_width=$(magick identify -format "%w" "$image_file")
-            img_height=$(magick identify -format "%h" "$image_file")
-
-            # Vérification de la réussite de la commande 'magick'
-            if [[ -z "$img_width" || -z "$img_height" ]]; then
-                echo "Erreur lors de la récupération des dimensions de l'image : $image_file"
-                continue
-            fi
-
-            # Calculs en utilisant awk pour maintenir la précision
-            x_min=$(awk "BEGIN {printf \"%d\", ($x_center * $img_width - ($width * $img_width / 2));}")
-            y_min=$(awk "BEGIN {printf \"%d\", ($y_center * $img_height - ($height * $img_height / 2));}")
-            box_width=$(awk "BEGIN {printf \"%d\", ($width * $img_width);}")
-            box_height=$(awk "BEGIN {printf \"%d\", ($height * $img_height);}")
-
-            echo "Traitement de l'image : $image_file"
-
-            # Vérifier si les valeurs pour le recadrage sont valides
-            if (( x_min >= 0 && y_min >= 0 && (x_min + box_width) <= img_width && (y_min + box_height) <= img_height )); then
-                output_file="$output_dir/$(basename "$label_file" .txt)_$RANDOM.jpg"
-                if magick "$image_file" -crop "${box_width}x${box_height}+${x_min}+${y_min}" "$output_file"; then
-                    echo "Image recadrée sauvegardée : $output_file"
-                else
-                    echo "Erreur lors du recadrage de l'image : $image_file"
-                fi
-            else
-                echo "Valeurs invalides pour cropping : x_min=$x_min, y_min=$y_min, box_width=$box_width, box_height=$box_height"
-            fi
-        done < "$label_file"
+  for label_file in "${label_files[@]}"; do
+    base=$(basename "$label_file" .txt)
+    # cherche l'image avec différentes extensions/casse
+    img=""
+    for ext in jpg jpeg JPG JPEG png PNG; do
+      candidate="/Donnees/birds_dataset/$className/$base.$ext"
+      if [[ -f "$candidate" ]]; then
+        img="$candidate"
+        break
+      fi
     done
+
+    if [[ -z "$img" ]]; then
+      echo "⚠️  Image introuvable pour '$className/$base' (.jpg/.jpeg/.png)"
+      continue
+    fi
+
+    echo "✅  Image trouvée : $img"
+    # lit chaque ligne de label
+    while read -r class_id x_center y_center width height _conf; do
+      img_w=$(magick identify -format "%w" "$img")
+      img_h=$(magick identify -format "%h" "$img")
+      x_min=$(awk "BEGIN{printf \"%d\",($x_center*$img_w-($width*$img_w/2))}")
+      y_min=$(awk "BEGIN{printf \"%d\",($y_center*$img_h-($height*$img_h/2))}")
+      w_box=$(awk "BEGIN{printf \"%d\",($width*$img_w)}")
+      h_box=$(awk "BEGIN{printf \"%d\",($height*$img_h)}")
+
+      echo "Traitement de l'image : $img"
+
+      if (( x_min>=0 && y_min>=0 && x_min+w_box<=img_w && y_min+h_box<=img_h )); then
+        out="$output_dir/${base}_$RANDOM.jpg"
+        magick "$img" -crop "${w_box}x${h_box}+${x_min}+${y_min}" "$out" \
+          && echo "  ➡️ recadrage OK : $out"
+      else
+        echo "  ⚠️ Valeurs invalides pour cropping : x_min=$x_min y_min=$y_min w=$w_box h=$h_box"
+      fi
+    done < "$label_file"
+  done
 done
 
-echo "Extraction des cadres terminée."
-
-
-
-
+echo "🏁 Extraction terminée : $(ls -1 "$output_dir" | wc -l) fichiers extraits."```
