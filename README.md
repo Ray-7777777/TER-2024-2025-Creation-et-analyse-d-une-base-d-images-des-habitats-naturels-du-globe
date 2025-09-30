@@ -2,7 +2,7 @@
 
 
 ## Description du projet:
-
+Ce projet de recherche interdisciplinaire explore les liens potentiels entre les caractéristiques physiologiques des oiseaux et leur environnement dans un contexte de sélection sexuelle. L'objectif est de déterminer si certains traits physiques des oiseaux reflètent des éléments de leur habitat, non seulement pour le camouflage mais également comme stratégie de séduction.
 
 ## Participants du projet:
   GUILHEM Adrian: adrian.guilhem@etu.univ-montp3.fr
@@ -24,7 +24,24 @@
   
   Dossier Soutenance: contient tout les fichiers nécessaires à la soutenance de ce projet
 
-## Outils collaboratifs utilisées lors de ce projet:
-  Github:
+## Pipeline de Traitement
+Acquisition des données : Récupération d'images via l'API iNaturalist
 
-  Discord:
+Prétraitement : Détection et filtrage des images avec traces humaines et zones floues
+
+Extraction des oiseaux : Modèle YOLOv5x optimisé pour la détection d'oiseaux
+
+Segmentation des arrière-plans : Algorithme d'extraction automatique des environnements
+
+Analyse des similarités : Calcul de distances entre caractéristiques visuelles
+
+## Technologies Utilisées
+Computer Vision : YOLOv5, YOLOv11, ResNet-50, OpenCV
+
+Traitement d'images : Détection de flou, extraction de features
+
+Data Science : Analyse statistique, clustering, similarités cosinus
+
+Visualisation : Streamlit, cartes interactives
+
+Infrastructure : Docker, Google Colab, GitHub
