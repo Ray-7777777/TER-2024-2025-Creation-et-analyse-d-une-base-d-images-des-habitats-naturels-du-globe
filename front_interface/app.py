@@ -23,6 +23,7 @@ import geopandas as gpd
 from shapely.geometry import Point
 from folium import Element
 from PIL import Image
+from ultralytics import YOLO
 
 # Import de la fonction d'extraction du background
 from extraction_bckgd import extract_background
@@ -39,7 +40,7 @@ def allowed_file(filename):
     """Vérifie si le fichier a une extension valide."""
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in {'png', 'jpg', 'jpeg'}
 
-def detect_bird(image_path):
+def detect_bird(image_path, model):
     """Détecte un oiseau dans une image et renvoie l'image annotée et les métriques."""
     img_bgr = cv2.imread(image_path)
     if img_bgr is None:
@@ -53,9 +54,13 @@ def detect_bird(image_path):
     img_tensor = torch.from_numpy(img_resized).float() / 255.0
     img_tensor = img_tensor.permute(2, 0, 1).unsqueeze(0)
     
+    # Déplacer le tenseur vers le même device que le modèle
+    device = next(model.parameters()).device
+    img_tensor = img_tensor.to(device)
+    
     results = model(img_tensor)
     preds = non_max_suppression(results, conf_thres=0.5, iou_thres=0.45)
-    detections = preds[0]
+    detections = preds[0].cpu()  # Ramener sur CPU pour le post-traitement
     
     metrics = []
     scale_x = w_orig / 640.0
@@ -83,13 +88,13 @@ def detect_bird(image_path):
     return found_box, img_bgr, metrics
 
 def save_bbox_txt(image_path, metrics):
-    """Sauvegarde les coordonnées des bounding boxes dans un fichier TXT au format : class, confiance, x1, y1, x2, y2."""
+    """Sauvegarde les coordonnées des bounding boxes dans un fichier TXT."""
     base_name = os.path.splitext(os.path.basename(image_path))[0]
     txt_file_path = os.path.join(UPLOAD_FOLDER, f"{base_name}.txt")
     txt_data = ""
     for m in metrics:
-        bbox_str = " ".join(str(x) for x in m["bbox"])
-        txt_data += f"{m['class']} {m['confidence']:.2f} {bbox_str}\n"
+        x1, y1, x2, y2 = m["bbox"]
+        txt_data += f"{m['class']} {m['confidence']:.2f} {x1} {y1} {x2} {y2}\n"
     with open(txt_file_path, 'w') as txt_file:
         txt_file.write(txt_data)
     return txt_file_path
@@ -183,154 +188,288 @@ geo_folder = os.path.join('static', 'geo')
 for folder in [UPLOAD_FOLDER, DETECTED_FOLDER, NOT_DETECTED_FOLDER, BACKGROUND_FOLDER, sharp_folder, blurry_folder]:
     os.makedirs(folder, exist_ok=True)
 
-model = DetectMultiBackend('./best.pt', device=torch.device('cpu'))
-blur_model = DetectMultiBackend('./best_flou.pt', device=torch.device('cpu'))
-############################
-# Interface Streamlit avec onglets
-############################
+# Fonction pour installer YOLOv12
+@st.cache_resource
+def setup_yolov12():
+    try:
+        import subprocess
+        weights_url = "https://github.com/WongKinYiu/yolov12/releases/download/v1.0/yolov12s.pt"
+        subprocess.run(["wget", weights_url, "-O", "best_human.pt"], check=True)
+        return True
+    except Exception as e:
+        st.error(f"Erreur lors de l'installation de YOLOv12: {str(e)}")
+        return False
 
-# Initialisation de la session pour stocker les infos
-if "images_info" not in st.session_state:
-    st.session_state["images_info"] = []
+# Initialisation des modèles avec gestion d'erreur
+@st.cache_resource(show_spinner=False)
+def load_models():
+    if not os.path.exists('./best_human.pt'):
+        if not setup_yolov12():
+            return None
+            
+    models = {}
+    try:
+        # YOLOv12 avec l'API ultralytics
+        models['human_model'] = YOLO('best_human.pt')
+        
+        # YOLOv5 pour oiseaux (inchangé)
+        models['bird_model'] = DetectMultiBackend('./best.pt', device=torch.device('cpu'))
+        models['bird_model'].warmup()
+        models['bird_model'].eval()
+        
+    except Exception as e:
+        st.error(f"Erreur lors du chargement des modèles : {str(e)}")
+        return None
+        
+    return models
 
-tab_detection, tab_background, tab_classification, tab_similarites, tab_cartes, tab_metriques = st.tabs(["Détection", "Background", "Classification", "Similarités", "Données Géographiques", "Métriques"])
+# Initialisation des variables de session
+if 'models' not in st.session_state:
+    st.session_state.models = load_models()
 
-# ---------- Onglet Détection ----------
-with tab_detection:
-    st.header("Détection d'oiseaux")
+if 'images_info' not in st.session_state:
+    st.session_state.images_info = []
+
+# Vérification des modèles
+if st.session_state.models is None:
+    st.error("⚠️ Erreur lors du chargement des modèles. L'application pourrait ne pas fonctionner correctement.")
+
+# Réorganisation des onglets
+tab_upload, tab_human, tab_detection, tab_background, tab_classification, tab_similarites, tab_cartes, tab_metriques = st.tabs([
+    "Upload", "Traces Humaines", "Détection Oiseaux", "Background", "Classification", "Similarités", "Données Géographiques", "Métriques"
+])
+
+# ---------- Onglet Upload ----------
+with tab_upload:
+    st.header("Upload d'images")
     uploaded_files = st.file_uploader(
         "Téléverser des images", type=["png", "jpg", "jpeg"], accept_multiple_files=True
     )
 
     if uploaded_files:
-        st.session_state["images_info"] = []  # Réinitialisation
-        # Traitement de chaque fichier uploadé
+        st.session_state.images_info = []  # Réinitialisation
+        
+        # Sauvegarde des images
         for file in uploaded_files:
             filename = secure_filename(file.name)
             original_path = os.path.join(UPLOAD_FOLDER, filename)
             with open(original_path, 'wb') as f:
                 f.write(file.getbuffer())
-
-            # Détection YOLO
-            found_box, annotated_img, metrics = detect_bird(original_path)
-            if annotated_img is None:
-                st.error(f"Erreur de détection pour {filename}")
-                continue
-
-            # Sauvegarde de l'image annotée
-            save_dir = DETECTED_FOLDER if found_box else NOT_DETECTED_FOLDER
-            annotated_path = os.path.join(save_dir, filename)
-            cv2.imwrite(annotated_path, annotated_img)
-
-            # Sauvegarde du fichier TXT de bounding box
-            bbox_txt = save_bbox_txt(original_path, metrics) if metrics else None
-
-            # Stocke les infos
-            st.session_state["images_info"].append({
+            
+            # Stockage initial
+            st.session_state.images_info.append({
                 "filename": filename,
                 "original_path": original_path,
-                "annotated_path": annotated_path,
-                "bbox_txt": bbox_txt,
-                "metrics": metrics
+                "annotated_path": None,
+                "bbox_txt": None,
+                "metrics": None,
+                "bird_detected": False,
+                "human_detected": False
             })
+        st.success(f"{len(uploaded_files)} images téléversées avec succès!")
 
-        # Recadrage direct des oiseaux à partir des fichiers TXT
-        os.makedirs(CROP_OUTPUT_DIR, exist_ok=True)
-        for info in st.session_state["images_info"]:
-            txt_path = info.get("bbox_txt")
-            if not txt_path or not os.path.exists(txt_path):
-                continue
-            img = cv2.imread(info["original_path"])
-            h, w = img.shape[:2]
-            with open(txt_path) as f:
-                for i, line in enumerate(f):
-                    parts = line.strip().split()
-                    # Format attendu: class confidence x1 y1 x2 y2
-                    if len(parts) != 6:
-                        continue
-                    _, _, x1, y1, x2, y2 = map(float, parts)
-                    x1, y1, x2, y2 = map(int, (x1, y1, x2, y2))
-                    x1, y1 = max(0, x1), max(0, y1)
-                    x2, y2 = min(w, x2), min(h, y2)
-                    crop = img[y1:y2, x1:x2]
-                    out_name = f"{info['filename']}_{i}.jpg"
-                    out_path = os.path.join(CROP_OUTPUT_DIR, out_name)
-                    cv2.imwrite(out_path, crop)
-        st.success(f"✅ Recadrage terminé ! Fichiers dans {CROP_OUTPUT_DIR}")
-
-        # Affichage des images recadrées
-        recrops = []
-        if os.path.exists(CROP_OUTPUT_DIR):
-            recrops = [os.path.join(CROP_OUTPUT_DIR, f)
-                       for f in os.listdir(CROP_OUTPUT_DIR)
-                       if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
-        if recrops:
-            st.subheader("Images recadrées")
-            cols = st.columns(4)
-            for idx, img_path in enumerate(recrops):
-                with cols[idx % 4]:
-                    st.image(img_path, use_container_width=True)
-                    # Bouton de téléchargement du crop avec clé unique
-                    with open(img_path, 'rb') as f:
-                        st.download_button(
-                            label="Télécharger",
-                            data=f,
-                            file_name=os.path.basename(img_path),
-                            mime="image/jpeg",
-                            key=f"download_crop_{os.path.basename(img_path)}"
-                        )
-        else:
-            st.info("Aucune image recadrée trouvée.")
-
-        # Affichage des résultats de détection
-        st.subheader("Images détectées")
-        for info in st.session_state["images_info"]:
-            st.image(info["annotated_path"], caption=info["filename"], use_container_width=True)
+# ---------- Onglet Traces Humaines ----------
+with tab_human:
+    st.header("Détection de traces humaines (YOLOv12)")
+    
+    if not st.session_state["images_info"]:
+        st.warning("⚠️ Veuillez d'abord uploader des images")
     else:
-        st.info("Aucune image téléversée.")
+        if st.button("🔍 Lancer la détection de traces humaines"):
+            if st.session_state.models is None or not isinstance(st.session_state.models, dict) or 'human_model' not in st.session_state.models:
+                st.error("❌ Modèle YOLOv12 non disponible")
+            else:
+                human_model = st.session_state.models['human_model']
+                
+                # Réinitialiser le statut de détection humaine pour toutes les images
+                for info in st.session_state["images_info"]:
+                    info["human_detected"] = False
+                
+                for info in st.session_state["images_info"]:
+                    with st.spinner(f"Analyse de {info['filename']}..."):
+                        results = human_model.predict(
+                            source=info["original_path"],
+                            conf=0.25,
+                            save=False,
+                            save_txt=False,
+                            augment=False
+                        )
+                        
+                        img_bgr = cv2.imread(info["original_path"])
+                        human_detected = False
+                        
+                        for result in results:
+                            boxes = result.boxes
+                            for box in boxes:
+                                x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+                                conf = box.conf.item()
+                                cls = int(box.cls.item())
+                                
+                                # Détecter uniquement les traces humaines (classe 0)
+                                if cls == 0:
+                                    human_detected = True
+                                    info["human_detected"] = True  # Mettre à jour directement dans l'info
+
+                                # Ne traiter que les classes 0 et 1
+                                X1, Y1, X2, Y2 = map(int, [x1, y1, x2, y2])
+                                class_name = "Traces humaines" if cls == 0 else "Oiseau"
+                                color = (0, 255, 0) if cls == 0 else (255, 0, 0)  # Fixed syntax
+                                
+                                # Dessiner les boîtes
+                                cv2.rectangle(img_bgr, (X1,Y1), (X2,Y2), color, 2)
+                                label = f"{class_name} {conf:.2f}"
+                                
+                                text_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
+                                cv2.rectangle(img_bgr, 
+                                            (X1, Y1 - text_size[1] - 4), 
+                                            (X1 + text_size[0], Y1), 
+                                            color, -1)
+                                cv2.putText(img_bgr, label, (X1, Y1-4),
+                                          cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
+
+                        if human_detected:
+                            status = "Traces humaines détectées 🏗️"
+                            st.write("**Légende des couleurs:**")
+                            st.markdown("- 🟢 Traces humaines")
+                            st.markdown("- 🔴 Oiseau")
+                        else:
+                            status = "Aucune trace humaine"
+                            
+                        st.write(f"**Résultat pour {info['filename']} :** {status}")
+                        st.image(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB),
+                                use_container_width=True)
+
+# ---------- Onglet Détection Oiseaux ----------
+with tab_detection:
+    st.header("Détection d'oiseaux (YOLOv5)")
+    
+    if not st.session_state["images_info"]:
+        st.warning("⚠️ Veuillez d'abord uploader des images")
+    else:
+        if not any("human_detected" in info for info in st.session_state["images_info"]):
+            st.warning("⚠️ Veuillez d'abord lancer la détection de traces humaines")
+        else:
+            if st.button("🔍 Lancer la détection d'oiseaux"):
+                if st.session_state.models is None or 'bird_model' not in st.session_state.models:
+                    st.error("❌ Modèle YOLOv5 non disponible")
+                else:
+                    bird_model = st.session_state.models['bird_model']
+                    progress_bar = st.progress(0)
+                    
+                    for idx, info in enumerate(st.session_state["images_info"]):
+                        with st.spinner(f"Analyse de {info['filename']}..."):
+                            # Détection des oiseaux
+                            found_box, annotated_img, metrics = detect_bird(info["original_path"], bird_model)
+                            
+                            if annotated_img is not None:
+                                # Sauvegarder l'image annotée
+                                save_dir = DETECTED_FOLDER if found_box else NOT_DETECTED_FOLDER
+                                annotated_path = os.path.join(save_dir, info["filename"])
+                                cv2.imwrite(annotated_path, annotated_img)
+                                
+                                # Si des oiseaux sont détectés, sauvegarder les bbox
+                                if found_box and metrics:
+                                    bbox_txt = save_bbox_txt(info["original_path"], metrics)
+                                    info.update({
+                                        "annotated_path": annotated_path,
+                                        "bbox_txt": bbox_txt,
+                                        "metrics": metrics,
+                                        "bird_detected": True
+                                    })
+                                    st.success(f"✅ Oiseau détecté dans {info['filename']}")
+                                else:
+                                    info.update({
+                                        "annotated_path": annotated_path,
+                                        "bbox_txt": None,
+                                        "metrics": [],
+                                        "bird_detected": False
+                                    })
+                                    st.info(f"ℹ️ Pas d'oiseau détecté dans {info['filename']}")
+                                
+                                st.image(annotated_path, 
+                                       caption=f"Détections sur {info['filename']}", 
+                                       use_container_width=True)
+                            
+                            progress_bar.progress((idx + 1) / len(st.session_state["images_info"]))
 
 # ---------- Onglet Background ----------
 with tab_background:
     st.header("Extraction du Background")
     if not st.session_state["images_info"]:
-        st.warning("Aucune image n'a été téléversée dans l'onglet Détection.")
+        st.warning("⚠️ Veuillez d'abord uploader des images")
     else:
-        filenames = [info["filename"] for info in st.session_state["images_info"]]
-        selected_images = st.multiselect("Sélectionnez les images pour extraire le background", filenames)
-        if st.button("Extraire le background"):
-            if not selected_images:
-                st.warning("Veuillez sélectionner au moins une image.")
-            else:
-                for info in st.session_state["images_info"]:
-                    if info["filename"] in selected_images:
-                        txt_file_path = info.get("bbox_txt")
-                        if not txt_file_path or not os.path.exists(txt_file_path):
-                            st.error(f"Le fichier TXT pour {info['filename']} est introuvable.")
-                            continue
-                        species = "Unknown"
-                        extracted_paths = extract_background(info["original_path"], txt_file_path, BACKGROUND_FOLDER, species)
-                        if extracted_paths:
-                            num_cols = 3
-                            cols = st.columns(num_cols)
-                            for i, path in enumerate(extracted_paths):
-                                with cols[i % num_cols]:
-                                    st.image(path, caption=f"Background extrait : {os.path.basename(path)}", use_container_width=True)
-                                    with open(path, "rb") as file:
-                                        st.download_button(
-                                            label=f"Télécharger {os.path.basename(path)}",
-                                            data=file,
-                                            file_name=os.path.basename(path),
-                                            mime="image/jpeg"
-                                        )
-                        else:
-                            st.error(f"Aucun background extrait pour {info['filename']}.")
+        images_processed = [info for info in st.session_state["images_info"] 
+                          if "bird_detected" in info]
+        
+        if not images_processed:
+            st.warning("⚠️ Veuillez d'abord lancer la détection d'oiseaux")
+        else:
+            filenames = [info["filename"] for info in images_processed]
+            selected_images = st.multiselect(
+                "Sélectionnez les images pour extraire le background", 
+                filenames
+            )
+            
+            if st.button("Extraire le background"):
+                if not selected_images:
+                    st.warning("Veuillez sélectionner au moins une image.")
+                else:
+                    for info in images_processed:
+                        if info["filename"] in selected_images:
+                            try:
+                                # Debug info
+                                st.write(f"Processing: {info['filename']}")
+                                st.write(f"Original path: {info['original_path']}")
+                                st.write(f"Bbox path: {info.get('bbox_txt', 'None')}")
+                                
+                                bbox_txt = None
+                                if info.get("bird_detected", False):
+                                    if info.get("bbox_txt") and os.path.exists(info["bbox_txt"]):
+                                        bbox_txt = info["bbox_txt"]
+                                    else:
+                                        bbox_txt = save_bbox_txt(info["original_path"], info["metrics"])
+                                        info["bbox_txt"] = bbox_txt
+                                
+                                species = "unknown"  # Keep lowercase consistent
+                                extracted_paths = extract_background(
+                                    info["original_path"],
+                                    bbox_txt,
+                                    BACKGROUND_FOLDER,
+                                    species
+                                )
+                                
+                                if extracted_paths:
+                                    msg = "Background extrait" if info.get("bird_detected") else "Image originale utilisée comme background"
+                                    st.success(f"✅ {msg} pour {info['filename']}")
+                                    
+                                    num_cols = 3
+                                    cols = st.columns(num_cols)
+                                    for i, path in enumerate(extracted_paths):
+                                        with cols[i % num_cols]:
+                                            st.image(path, 
+                                                   caption=f"Background: {os.path.basename(path)}", 
+                                                   use_container_width=True)
+                                            with open(path, "rb") as file:
+                                                st.download_button(
+                                                    label=f"Télécharger",
+                                                    data=file,
+                                                    file_name=os.path.basename(path),
+                                                    mime="image/jpeg"
+                                                )
+                                else:
+                                    st.error(f"❌ Erreur lors de l'extraction pour {info['filename']}")
+                            except Exception as e:
+                                st.error(f"❌ Erreur pour {info['filename']}: {str(e)}")
 
 # ---------- Onglet Classification (Flou vs Nette) ----------
 with tab_classification:
     st.header("Classification : Flou ou Nette (Deep)")
     if not st.session_state["images_info"]:
         st.warning("Aucune image n'a été téléversée…")
+    elif st.session_state.models is None or not isinstance(st.session_state.models, dict) or 'blur_model' not in st.session_state.models:
+        st.error("Modèle de détection de flou non disponible")
     else:
+        blur_model = st.session_state.models['blur_model']
         for info in st.session_state["images_info"]:
             st.subheader(info["filename"])
             img_bgr = cv2.imread(info["original_path"])
@@ -378,7 +517,7 @@ with tab_classification:
                     x2 = int(x2 * w0 / 640)
                     y2 = int(y2 * h0 / 640)
 
-                    # 2) clamp dans l’image
+                    # 2) clamp dans l'image
                     x1, y1 = max(0, x1), max(0, y1)
                     x2, y2 = min(w0, x2), min(h0, y2)
 
@@ -533,11 +672,14 @@ with tab_cartes:
         raw = os.path.splitext(f.name)[0]
         try:
             df = pd.read_csv(f)
-            pts = list(zip(df["latitude"], df["longitude"]))
+            if "latitude" not in df.columns or "longitude" not in df.columns:
+                st.warning(f"Colonnes latitude/longitude manquantes dans {f.name}")
+                continue
+            pts = list(zip(df["latitude"], df["longitude"]))  # Fixed parentheses
             if pts:
                 species_coords[raw] = pts
-        except Exception:
-            st.warning(f"Impossible de lire {f.name}")
+        except Exception as e:
+            st.warning(f"Impossible de lire {f.name}: {str(e)}")
     if not species_coords:
         st.error("Aucune coordonnée valide trouvée.")
         st.stop()
@@ -632,30 +774,13 @@ with tab_cartes:
                 row.update(raster_map.get((lat, lon), {bn: None for bn in BAND_NAMES}))
             rows.append(row)
 
-    df_summary = pd.DataFrame(rows)
-    st.markdown("### Tableau récapitulatif de toutes les observations")
-    st.dataframe(df_summary)
-
-    # --- 6) Menus déroulants ---
-    names  = ["Toutes espèces"] + [f.name for f in uploaded_files]
-    choice = st.selectbox("Fichier à afficher", names)
-    modality = st.selectbox("Modalité", ["Climats", "Ecorégions", "Écosystèmes"])
-    if modality == "Climats":
-        climat_level = st.selectbox("Niveau de détail", ["Climat", "Sub-climat", "Sub-sub-climat"])
-
-    # --- 7) Affichage de la carte ---
-    if st.button("Afficher la carte"):
-        if choice != "Toutes espèces":
-            raw2    = os.path.splitext(choice)[0]
-            display = " ".join(raw2.split("_")[:2])
-            df_plot = df_summary[df_summary["Espèce"] == display]
-        else:
-            df_plot = df_summary
-
-        if df_plot.empty:
-            st.error("Pas d'observations pour la sélection.")
-            st.stop()
-
+    # --- 6) Affichage de la carte ---
+    st.write("### Carte des observations")
+    if not rows:
+        st.warning("Aucune donnée à afficher sur la carte.")
+    else:
+        df_plot = pd.DataFrame(rows)
+        # centre la carte sur la moyenne des points
         m = folium.Map(
             location=[df_plot["Latitude"].mean(), df_plot["Longitude"].mean()],
             zoom_start=4
